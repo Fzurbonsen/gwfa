@@ -269,7 +269,42 @@ typedef struct {
 	gwf_intv_v tmp, swap;
 	gwf_diag_v ooo;
 	gwf_trace_v t;
+	int8_t** tbm // traceback matrices
 } gwf_edbuf_t;
+
+
+// function to initialize and allocate memory for traceback matrices
+static inline void gwf_init_trace_mat(gwf_edbuf_t* buf, gwf_graph_t* g, int32_t ql)
+{
+	KCALLOC(buf->km, buf->tbm, g->n_vtx);
+	// iterate over all nodes to prepare tb matrix for this node
+	for (int i = 0; i < g->n_vtx; ++i) {
+		KCALLOC(buf->km, buf->tbm[i], (g->len[i]+1) * (ql+1) * sizeof(int32_t)); // allocate memory for this node
+	}
+}
+
+// function to free tb matrices
+static inline void gwf_delete_trace_mat(gwf_edbuf_t* buf, gwf_graph_t* g)
+{
+	for (int i = 0; i < g->n_vtx; ++i) {
+		kfree(buf->km, buf->tbm[i]);
+	}
+	kfree(buf->km, buf->tbm);
+}
+
+static inline void gwf_print_trace_mat(FILE* file, gwf_edbuf_t* buf, gwf_graph_t* g, int32_t ql)
+{
+	for (int i = 0; i < g->n_vtx; ++i) {
+		fprintf(file, "node: %i\n", i);
+		for (int j = 0; j < ql; ++j) {
+			fprintf(file, "\n");
+			for (int k = 0; k < g->len[i]; ++k) {
+				fprintf(file, "%i\t", buf->tbm[i][j*g->len[i] + k]);
+			} 
+		}
+	}
+}
+
 
 // remove diagonals not on the wavefront
 static int32_t gwf_dedup(gwf_edbuf_t *buf, int32_t n_a, gwf_diag_t *a)
@@ -330,7 +365,7 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 
 // This is essentially Landau-Vishkin for linear sequences. The function speeds up alignment to long vertices. Not really necessary.
 static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t n, gwf_diag_t *a, gwf_diag_v *B,
-								kdq_t(gwf_diag_t) *A, gwf_intv_v *tmp_intv)
+								kdq_t(gwf_diag_t) *A, gwf_intv_v *tmp_intv, int32_t traceback, gwf_edbuf_t* buf)
 {
 	int32_t j, m;
 	int32_t v = a->vd>>32;
@@ -342,6 +377,15 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	for (j = 0; j < n; ++j) {
 		int32_t k;
 		k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+
+		// if (traceback == 2) {
+		// 	int32_t i_n = a[j].k;
+		// 	int32_t i_q = (int32_t)a[j].vd - GWF_DIAG_SHIFT + k;
+		// 	for (int i = k - i_n; i < k; ++i) {
+		// 		buf->tbm[v][i_q*graph->len[v] + i_n] = 1;
+		// 	}
+		// }
+
 		a[j].xo += (k - a[j].k) << 2;
 		a[j].k = k;
 	}
@@ -422,7 +466,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 #else // optimized for long vertices.
 	for (x = 0, i = 1; i <= n; ++i) {
 		if (i == n || a[i].vd != a[i-1].vd + 1) {
-			gwf_ed_extend_batch(buf->km, g, ql, q, i - x, &a[x], &B, A, &buf->tmp);
+			gwf_ed_extend_batch(buf->km, g, ql, q, i - x, &a[x], &B, A, &buf->tmp, traceback, &buf);
 			x = i;
 		}
 	}
@@ -530,7 +574,11 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	kv_resize(gwf_trace_t, km, buf.t, g->n_vtx + 16);
 	KCALLOC(km, a, 1);
 	a[0].vd = gwf_gen_vd(v0, 0), a[0].k = -1, a[0].xo = 0; // the initial state
+
+	traceback = 2;
+
 	if (traceback) a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
+	if (traceback == 2) gwf_init_trace_mat(&buf, g, ql);
 	while (n_a > 0) {
 		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
 		if (path->end_off >= 0 || n_a == 0) break;
@@ -540,6 +588,12 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 #endif
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
+	if (traceback == 2) {
+		FILE* outputFile = fopen("./test_file.txt", "w");
+		gwf_print_trace_mat(outputFile, &buf, g, ql);
+		fclose(outputFile);
+	}
+	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
 	gwf_set64_destroy(buf.ha);
 	gwf_map64_destroy(buf.ht);
 	kfree(km, buf.intv.a); kfree(km, buf.tmp.a); kfree(km, buf.swap.a); kfree(km, buf.t.a);
