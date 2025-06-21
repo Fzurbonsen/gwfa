@@ -390,6 +390,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 		k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 
 		if (traceback == 2) { // add matches to tbm
+			fprintf(stderr, "ello\n");
 			int32_t start = a[j].k+1; // +1 as there is the query starts at idx 1 and not 0
 			int32_t end   = k+1;
 			int32_t d     = (int32_t)a[j].vd - GWF_DIAG_SHIFT;
@@ -553,8 +554,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
 		if (traceback == 2) { // add matches to tbm
-			int32_t start = t.k;
-			int32_t end   = k;
+			int32_t start = t.k+1;
+			int32_t end   = k+1;
 			int32_t vd    = d;
 			for (int32_t i = start+1; i <= end; ++i) {
 				int32_t qi = vd + i; // query index
@@ -572,7 +573,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			if (B.n >= 1) push2 = gwf_diag_update(&B.a[B.n - 1], v, d,   k+1, x0 + 2, ooo, t.t);
 			if (push1) {
 			    gwf_diag_push(buf->km, &B, v, d-1, k+1, x0 + 1, 1, t.t);
-				// if (traceback == 2) { // dummyi
+				// if (traceback == 2) { // dummy
 				// 	int32_t i_n = k + 1 + 1;
 				// 	int32_t i_q = d-1 + i_n;
 				// 	buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2;
@@ -710,11 +711,11 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 #endif
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
-	// if (traceback == 2) {
-	// 	FILE* outputFile = fopen("./test_file.txt", "w");
-	// 	gwf_print_trace_mat(outputFile, &buf, g, ql, q);
-	// 	fclose(outputFile);
-	// }
+	if (traceback == 2) {
+		FILE* outputFile = fopen("./test_file.txt", "w");
+		gwf_print_trace_mat(outputFile, &buf, g, ql, q);
+		fclose(outputFile);
+	}
 	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
 	gwf_set64_destroy(buf.ha);
 	gwf_map64_destroy(buf.ht);
