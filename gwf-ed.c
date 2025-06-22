@@ -301,13 +301,13 @@ static inline void gwf_print_trace_mat(FILE* file, gwf_edbuf_t* buf, gwf_graph_t
 			fprintf(file, "%c\t", g->seq[i][j]);
 		}
 		fprintf(file, "\n");
-		for (int j = 0; j <= ql; ++j) {
-			if (j == 0) {
+		for (int j = 0; j <= ql+1; ++j) {
+			if (j == 0 || j == ql+1) {
 				fprintf(file, "\t");
 			} else {
 				fprintf(file, "%c\t", q[j-1]);
 			}
-			for (int k = 0; k <= g->len[i]; ++k) {
+			for (int k = 0; k <= g->len[i]+1; ++k) {
 				fprintf(file, "%i\t", buf->tbm[i][j*(g->len[i]+2) + k]);
 			} 
 			fprintf(file, "\n");
@@ -390,7 +390,6 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 		k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 
 		if (traceback == 2) { // add matches to tbm
-			fprintf(stderr, "ello\n");
 			int32_t start = a[j].k+1; // +1 as there is the query starts at idx 1 and not 0
 			int32_t end   = k+1;
 			int32_t d     = (int32_t)a[j].vd - GWF_DIAG_SHIFT;
@@ -527,7 +526,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	if (i < 4) i = 4;
 	A = kdq_init2(gwf_diag_t, buf->km, i); // $A is a queue
 	kv_resize(gwf_diag_t, buf->km, B, n * 2);
-#if 1 // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
+#if 0 // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
 	A->count = n;
 	memcpy(A->a, a, n * sizeof(*a));
 #else // optimized for long vertices.
@@ -571,28 +570,20 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			int32_t push1 = 1, push2 = 1;
 			if (B.n >= 2) push1 = gwf_diag_update(&B.a[B.n - 2], v, d-1, k+1, x0 + 1, ooo, t.t);
 			if (B.n >= 1) push2 = gwf_diag_update(&B.a[B.n - 1], v, d,   k+1, x0 + 2, ooo, t.t);
-			if (push1) {
-			    gwf_diag_push(buf->km, &B, v, d-1, k+1, x0 + 1, 1, t.t);
-				// if (traceback == 2) { // dummy
-				// 	int32_t i_n = k + 1 + 1;
-				// 	int32_t i_q = d-1 + i_n;
-				// 	buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2;
-				// }
-			}
-			if (push2 || push1) {
-				gwf_diag_push(buf->km, &B, v, d,   k+1, x0 + 2, 1, t.t);
-				//if (traceback == 2) { // dummy
-				//	int32_t i_n = k + 1 + 1;
-				//	int32_t i_q = d + i_n;
-				//	buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4;
-				//}
-			}
+			if (push1) gwf_diag_push(buf->km, &B, v, d-1, k+1, x0 + 1, 1, t.t);
+			if (push2 || push1) gwf_diag_push(buf->km, &B, v, d,   k+1, x0 + 2, 1, t.t);
 			gwf_diag_push(buf->km, &B, v, d+1, k, x0 + 1, ooo, t.t);
-			//if (traceback == 2) { // dummy
-			//		int32_t i_n = k + 1;
-			//		int32_t i_q = d+1 + i_n;
-			//		buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
-			//}
+			if (traceback == 2) { // traceback
+				int32_t i_n = k + 1 + 1;
+				int32_t i_q = d + i_n;
+				if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4;
+				i_n = k + 1 + 1;
+				i_q = d-1 + i_n;
+				if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2;
+				i_n = k + 1;
+				i_q = d+1 + i_n;
+				if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
+			}
 		} else if (i + 1 < ql) { // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
 			int32_t ov = g->aux[v]>>32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1;
 			gwf_intv_t *p;
@@ -610,29 +601,32 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						gwf_diag_t *p;
 						p = kdq_pushp(gwf_diag_t, A);
 						p->vd = gwf_gen_vd(w, i+1-ol), p->k = ol, p->xo = (x0+2)<<1 | 1, p->t = tw;
+						if (traceback == 2) { // add match
+							int32_t i_n = ol + 1;
+							int32_t i_q = i+1+1;
+							if (buf->tbm[w][i_q * (g->len[w]+2) + i_n] == 0) buf->tbm[w][i_q * (g->len[w]+2) + i_n] = 1;
+						}
 					}
 				} else if (absent) {
 					gwf_diag_push(buf->km, &B, w, i-ol,   ol, x0 + 1, 1, tw);
 					gwf_diag_push(buf->km, &B, w, i+1-ol, ol, x0 + 2, 1, tw);
-					//if (traceback == 2) { // dummy
-					//	int32_t i_n = k + 1;
-					//	int32_t i_q = d+1 + i_n;
-					//	buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
-					//}
-					//if (traceback == 2) { // dummy
-					//	int32_t i_n = k + 1;
-					//	int32_t i_q = d+1 + i_n;
-					//	buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
-					//}
+					if (traceback == 2) { // add mismatch and deletion
+						int32_t i_n = ol + 1;
+						int32_t i_q = i+1+1;
+						if (buf->tbm[w][i_q * (g->len[w]+2) + i_n] == 0) buf->tbm[w][i_q * (g->len[w]+2) + i_n] = 2;
+						i_n = ol + 1;
+						i_q = i+1+1;
+						if (buf->tbm[w][i_q * (g->len[w]+2) + i_n] == 0) buf->tbm[w][i_q * (g->len[w]+2) + i_n] = 4;
+					}
 				}
 			}
 			if (nv == 0 || n_ext != nv) // add an insertion to the target; this *might* cause a duplicate in corner cases
 				gwf_diag_push(buf->km, &B, v, d+1, k, x0 + 1, 1, t.t);
-				//if (traceback == 2) { // dummy
-				//	int32_t i_n = k + 1;
-				//	int32_t i_q = d+1 + i_n;
-				//	buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
-				//}
+				if (traceback == 2) { // dummy
+					int32_t i_n = k + 1;
+					int32_t i_q = d+1 + i_n;
+					if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
+				}
 		} else if (v1 < 0 || (v == v1 && k + 1 == vl)) { // i + 1 == ql
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
 			kdq_destroy(gwf_diag_t, A);
@@ -640,11 +634,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			return 0;
 		} else if (k + 1 < vl) { // i + 1 == ql; reaching the end of the query but not the end of the vertex
 			gwf_diag_push(buf->km, &B, v, d-1, k+1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
-			//if (traceback == 2) { // dummy
-			//		int32_t i_n = k + 1;
-			//		int32_t i_q = d+1 + i_n;
-			//		buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
-			//}
+			if (traceback == 2) { // dummy
+					int32_t i_n = k+1 + 1;
+					int32_t i_q = d-1 + i_n;
+					if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
+			}
 		} else if (v != v1) { // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
 			int32_t ov = g->aux[v]>>32, nv = (int32_t)g->aux[v], j, tw = -1;
 			if (traceback) tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
@@ -652,11 +646,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				uint32_t w = (uint32_t)g->arc[ov + j].a;
 				int32_t ol = g->arc[ov + j].o;
 				gwf_diag_push(buf->km, &b, w, i-ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
-				//if (traceback == 2) { // dummy
-				//	int32_t i_n = k + 1;
-				//	int32_t i_q = d+1 + i_n;
-				//	buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
-				//}
+				if (traceback == 2) { // add deletion to traceback
+					int32_t i_n = ol + 1;
+					int32_t i_q = i-ol + i_n;
+					if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3;
+				}
 			}
 		} else assert(0); // should never come here
 	}
