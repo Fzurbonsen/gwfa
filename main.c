@@ -114,7 +114,8 @@ int main(int argc, char *argv[])
 	ks = kseq_init(fp);
 	while (kseq_read(ks) >= 0) {
 		int32_t s;
-		s = gwf_ed(km, g, ks->seq.l, ks->seq.s, 0, -1, max_lag, traceback, &path);
+		// s = gwf_ed(km, g, ks->seq.l, ks->seq.s, 0, -1, max_lag, traceback, &path);
+		s = gwf_ed_infix(km, g, ks->seq.l, ks->seq.s, 0, -1, max_lag, traceback, &path);
 		if (traceback) {
 			int32_t i, last_len = -1, len = 0;
 			printf("%s\t%ld\t0\t%ld\t+\t", ks->name.s, ks->seq.l, ks->seq.l);

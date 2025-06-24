@@ -692,8 +692,6 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	KCALLOC(km, a, 1);
 	a[0].vd = gwf_gen_vd(v0, 0), a[0].k = -1, a[0].xo = 0; // the initial state
 
-	traceback = 2;
-
 	if (traceback) a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
 	if (traceback == 2) gwf_init_trace_mat(&buf, g, ql);
 	while (n_a > 0) {
@@ -743,7 +741,7 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 			diag.k = j;
 			diag.xo = j & ~1;
 			if (traceback) {
-				diag.t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
+				diag.t = base_trace;
 			}
 			kv_push(gwf_diag_t, km, vec, diag);
 			n_a++;
@@ -754,8 +752,23 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 
 	a = vec.a;
 
+
+
+	// int32_t s = 0, n_a = 1, end_tb;
+	// gwf_diag_t *a;
+	// gwf_edbuf_t buf;
+
+	// memset(&buf, 0, sizeof(buf));
+	// buf.km = km;
+	// buf.ha = gwf_set64_init2(km);
+	// buf.ht = gwf_map64_init2(km);
+	// kv_resize(gwf_trace_t, km, buf.t, g->n_vtx + 16);
+	// KCALLOC(km, a, 1);
+
 	// a[0].vd = gwf_gen_vd(v0, 0), a[0].k = -1, a[0].xo = 0; // the initial state
 	// if (traceback) a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
+
+
 	while (n_a > 0) {
 		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
 		if (path->end_off >= 0 || n_a == 0) break;
