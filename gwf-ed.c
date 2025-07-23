@@ -316,6 +316,92 @@ static inline void gwf_print_trace_mat(FILE* file, gwf_edbuf_t* buf, gwf_graph_t
 	}
 }
 
+static inline char* gwf_walk_trace_mat(gwf_edbuf_t* buf, gwf_path_t* path, gwf_graph_t* g, int32_t ql) {
+	
+	// iterate over path to get minimal string length
+	int32_t len = 0;
+	for (int i = 0; i < path->nv; ++i) {
+		len += g->len[path->v[i]];
+	}
+	fprintf(stderr, "len: %i\n", len);
+	fprintf(stderr, "path len: %i\n", path->nv);
+	char* cigar = (char*)calloc(len, sizeof(char));
+	int32_t char_index = 0;
+
+
+	int32_t end_off = path->end_off;
+	int32_t end_v = path->end_v;
+	int32_t i_q = ql - 1, i_n = 0; // index of position in query and node
+	int32_t pos, score;
+	for (int i = path->nv; i > 0; --i) {
+		int32_t v = path->v[i-1];
+		i_n = g->len[v] - 1; // set node index to the rightmost position in the node
+		if (v == end_v) { // check wether we are in the first traversed node
+			i_n = end_off;
+		}
+
+		// buf->tbm[v][i_q * (g->len[v]+2) + i_n]
+		while (1) { // travers the current node/matrix
+			pos = buf->tbm[v][(i_q+1) * (g->len[v]+2) + i_n + 1];
+			fprintf(stderr, "entry: %i\tv: %i\ti_q: %i\ti_n: %i\n", pos, v, i_q, i_n);
+			switch(pos) {
+				case 1:
+					--i_q;
+					--i_n;
+					cigar[char_index] = 'M';
+					++char_index;
+					break;
+				case 2:
+					--i_q;
+					++score;
+					cigar[char_index] = 'D';
+					++char_index;
+					break;
+				case 3:
+					--i_n;
+					++score;
+					cigar[char_index] = 'I';
+					++char_index;
+					break;
+				case 4:
+					--i_q;
+					--i_n;
+					++score;
+					cigar[char_index] = 'X';
+					++char_index;
+					break;
+				default:
+					fprintf(stderr, "[gwfa]error: unkonwn tbm entry!\n");
+					fprintf(stderr, "entry: %i\tv: %i\ti_q: %i\ti_n: %i\n", pos, v, i_q, i_n);
+					exit(1);
+			}
+
+			if (char_index == len-1) {
+				len = len * 2;
+				cigar = realloc(cigar, len);
+			}
+
+			if (i_q == -1) { // if we reached the start of the query then we break
+				break;
+			} else if (i_n == -1) { // if we reached the start of the node we break
+				break;
+			}
+		}
+	}
+
+	char* final_cigar = (char*)calloc(char_index + 2, sizeof(char));
+	for (int j = 0, i = char_index; i >= 0; --i, ++j) {
+		final_cigar[j] = cigar[i];
+		fprintf(stderr, "%c", cigar[i]);
+	}
+	fprintf(stderr, "\n");
+	final_cigar[char_index+1] = '\0';
+
+	fprintf(stderr, "%s\n", final_cigar);
+
+	return final_cigar;
+}
+
 
 // remove diagonals not on the wavefront
 static int32_t gwf_dedup(gwf_edbuf_t *buf, int32_t n_a, gwf_diag_t *a)
@@ -389,16 +475,16 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 		int32_t k;
 		k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 
-		// if (traceback == 2) { // add matches to tbm
-		// 	int32_t start = a[j].k+1; // +1 as there is the query starts at idx 1 and not 0
-		// 	int32_t end   = k+1;
-		// 	int32_t d     = (int32_t)a[j].vd - GWF_DIAG_SHIFT;
-		// 	for (int32_t i = start+1; i <= end; ++i) {
-		// 		int32_t qi = d + i; // query index
-		// 		int32_t ni = i;      // node index
-		// 		buf->tbm[v][qi * (g->len[v]+2) + ni] = 1;
-		// 	}
-		// }
+		if (traceback == 2) { // add matches to tbm
+			int32_t start = a[j].k+1; // +1 as there is the query starts at idx 1 and not 0
+			int32_t end   = k+1;
+			int32_t d     = (int32_t)a[j].vd - GWF_DIAG_SHIFT;
+			for (int32_t i = start+1; i <= end; ++i) {
+				int32_t qi = d + i; // query index
+				int32_t ni = i;      // node index
+				buf->tbm[v][qi * (g->len[v]+2) + ni] = 1;
+			}
+		}
 
 		a[j].xo += (k - a[j].k) << 2;
 		a[j].k = k;
@@ -411,26 +497,26 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	b[0].xo = a[0].xo + 2; // 2 == 1<<1
 	b[0].k = a[0].k + 1;
 	b[0].t = a[0].t;
-	// if (traceback == 2) {
-	// 	int32_t i_n = b[0].k + 1;
-	// 	int32_t i_q = (int32_t)b[0].vd - GWF_DIAG_SHIFT + i_n;
-	// 	buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
-	// }
+	if (traceback == 2) {
+		int32_t i_n = b[0].k + 1;
+		int32_t i_q = (int32_t)b[0].vd - GWF_DIAG_SHIFT + i_n;
+		buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
+	}
 
 
 	b[1].vd = a[0].vd;
 	b[1].xo =  n == 1 || a[0].k > a[1].k? a[0].xo + 4 : a[1].xo + 2;
 	b[1].t  =  n == 1 || a[0].k > a[1].k? a[0].t : a[1].t;
 	b[1].k  = (n == 1 || a[0].k > a[1].k? a[0].k : a[1].k) + 1;
-	// if (traceback == 2) {
-	// 	int32_t i_n = b[1].k + 1;
-	// 	int32_t i_q = (int32_t)b[1].vd - GWF_DIAG_SHIFT + i_n;
-	// 	if (n == 1 || a[0].k > a[1].k) { // add a mismatch
-	// 		buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4; // mark mismatch
-	// 	} else { // add a deletion
-	// 		buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
-	// 	}
-	// }
+	if (traceback == 2) {
+		int32_t i_n = b[1].k + 1;
+		int32_t i_q = (int32_t)b[1].vd - GWF_DIAG_SHIFT + i_n;
+		if (n == 1 || a[0].k > a[1].k) { // add a mismatch
+			buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4; // mark mismatch
+		} else { // add a deletion
+			buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
+		}
+	}
 
 	for (j = 1; j < n - 1; ++j) {
 		uint32_t x = a[j-1].xo + 2;
@@ -703,11 +789,14 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 #endif
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
-	// if (traceback == 2) {
-	// 	FILE* outputFile = fopen("./test_file.txt", "w");
-	// 	gwf_print_trace_mat(outputFile, &buf, g, ql, q);
-	// 	fclose(outputFile);
-	// }
+	fprintf(stderr, "end_off: %i\n", path->end_off);
+	fprintf(stderr, "end_node: %i\n", path->end_v);
+	if (traceback == 2) {
+		FILE* outputFile = fopen("./test_file.txt", "w");
+		gwf_print_trace_mat(outputFile, &buf, g, ql, q);
+		fclose(outputFile);
+	}
+	if (traceback == 2) gwf_walk_trace_mat(&buf, path, g, ql);
 	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
 	gwf_set64_destroy(buf.ha);
 	gwf_map64_destroy(buf.ht);
@@ -779,6 +868,12 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
 	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
+	if (traceback == 2) {
+		FILE* outputFile = fopen("./test_file.txt", "w");
+		gwf_print_trace_mat(outputFile, &buf, g, ql, q);
+		fclose(outputFile);
+	}
+	fprintf(stderr, "end_off: %i\n", path->end_off);
 	gwf_set64_destroy(buf.ha);
 	gwf_map64_destroy(buf.ht);
 	kfree(km, buf.intv.a); kfree(km, buf.tmp.a); kfree(km, buf.swap.a); kfree(km, buf.t.a);
