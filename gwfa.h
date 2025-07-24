@@ -22,6 +22,7 @@ typedef struct {
 	int32_t end_v, end_off;
 	int32_t nv;
 	int32_t *v;
+	char* cigar;
 } gwf_path_t;
 
 #ifdef __cplusplus

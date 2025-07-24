@@ -316,15 +316,15 @@ static inline void gwf_print_trace_mat(FILE* file, gwf_edbuf_t* buf, gwf_graph_t
 	}
 }
 
-static inline char* gwf_walk_trace_mat(gwf_edbuf_t* buf, gwf_path_t* path, gwf_graph_t* g, int32_t ql) {
+static inline void gwf_walk_trace_mat(gwf_edbuf_t* buf, gwf_path_t* path, gwf_graph_t* g, int32_t ql) {
 	
 	// iterate over path to get minimal string length
 	int32_t len = 0;
 	for (int i = 0; i < path->nv; ++i) {
 		len += g->len[path->v[i]];
 	}
-	fprintf(stderr, "len: %i\n", len);
-	fprintf(stderr, "path len: %i\n", path->nv);
+	// fprintf(stderr, "len: %i\n", len);
+	// fprintf(stderr, "path len: %i\n", path->nv);
 	char* cigar = (char*)calloc(len, sizeof(char));
 	int32_t char_index = 0;
 
@@ -343,7 +343,7 @@ static inline char* gwf_walk_trace_mat(gwf_edbuf_t* buf, gwf_path_t* path, gwf_g
 		// buf->tbm[v][i_q * (g->len[v]+2) + i_n]
 		while (1) { // travers the current node/matrix
 			pos = buf->tbm[v][(i_q+1) * (g->len[v]+2) + i_n + 1];
-			fprintf(stderr, "entry: %i\tv: %i\ti_q: %i\ti_n: %i\n", pos, v, i_q, i_n);
+			// fprintf(stderr, "entry: %i\tv: %i\ti_q: %i\ti_n: %i\n", pos, v, i_q, i_n);
 			switch(pos) {
 				case 1:
 					--i_q;
@@ -389,17 +389,14 @@ static inline char* gwf_walk_trace_mat(gwf_edbuf_t* buf, gwf_path_t* path, gwf_g
 		}
 	}
 
-	char* final_cigar = (char*)calloc(char_index + 2, sizeof(char));
-	for (int j = 0, i = char_index; i >= 0; --i, ++j) {
-		final_cigar[j] = cigar[i];
-		fprintf(stderr, "%c", cigar[i]);
+
+	path->cigar = (char*)calloc(char_index + 2, sizeof(char));
+	for (int j = 0, i = char_index - 1; i >= 0; --i, ++j) {
+		path->cigar[j] = cigar[i];
 	}
-	fprintf(stderr, "\n");
-	final_cigar[char_index+1] = '\0';
 
-	fprintf(stderr, "%s\n", final_cigar);
-
-	return final_cigar;
+	path->cigar[char_index] = '\0';
+	free(cigar);
 }
 
 
@@ -769,6 +766,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	int32_t s = 0, n_a = 1, end_tb;
 	gwf_diag_t *a;
 	gwf_edbuf_t buf;
+	char* cigar;
 
 	memset(&buf, 0, sizeof(buf));
 	buf.km = km;
@@ -789,8 +787,6 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 #endif
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
-	fprintf(stderr, "end_off: %i\n", path->end_off);
-	fprintf(stderr, "end_node: %i\n", path->end_v);
 	if (traceback == 2) {
 		FILE* outputFile = fopen("./test_file.txt", "w");
 		gwf_print_trace_mat(outputFile, &buf, g, ql, q);
