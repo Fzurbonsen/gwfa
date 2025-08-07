@@ -382,11 +382,17 @@ static inline void gwf_walk_trace_mat(gwf_edbuf_t* buf, gwf_path_t* path, gwf_gr
 			}
 
 			pos = buf->tbm[v][(i_q+1) * (g->len[v]+2) + i_n + 1];
-			if (i_q == -1 && (pos != 2)) { // if we reached the start of the query then we break
+			if ((i_q == -1) && (pos != 2)) { // if we reached the start of the query then we break
 				break;
 			} else if (i_n == -1 && (pos != 3)) { // if we reached the start of the node and the end we break
 				break;
 			}
+		}
+
+		if ((i_q == -1) && (pos != 2)) { // if we reached the start of the query then we break
+			break;
+		} else if (i_n == -1 && (pos != 3)) { // if we reached the start of the node and the end we break
+			break;
 		}
 	}
 
@@ -698,7 +704,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 					gwf_diag_push(buf->km, &B, w, i+1-ol, ol, x0 + 2, 1, tw);
 					if (traceback == 2) { // add mismatch and deletion
 						int32_t i_n = ol + 1;
-						int32_t i_q = i+1+1;
+						int32_t i_q = i+1;
 						if (buf->tbm[w][i_q * (g->len[w]+2) + i_n] == 0) buf->tbm[w][i_q * (g->len[w]+2) + i_n] = 2;
 						i_n = ol + 1;
 						i_q = i+1+1;
