@@ -486,7 +486,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 			for (int32_t i = start+1; i <= end; ++i) {
 				int32_t qi = d + i; // query index
 				int32_t ni = i;      // node index
-				if (buf->tbm[v][qi * (g->len[v]+2) + ni] == 0) buf->tbm[v][qi * (g->len[v]+2) + ni] = 1;
+				buf->tbm[v][qi * (g->len[v]+2) + ni] = 1;
 			}
 		}
 
@@ -504,7 +504,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	if (traceback == 2) {
 		int32_t i_n = b[0].k + 1;
 		int32_t i_q = (int32_t)b[0].vd - GWF_DIAG_SHIFT + i_n;
-		if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
+		buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
 	}
 
 
@@ -516,9 +516,9 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 		int32_t i_n = b[1].k + 1;
 		int32_t i_q = (int32_t)b[1].vd - GWF_DIAG_SHIFT + i_n;
 		if (n == 1 || a[0].k > a[1].k) { // add a mismatch
-			if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4; // mark mismatch
+			buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4; // mark mismatch
 		} else { // add a deletion
-			if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
+			buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
 		}
 	}
 
@@ -551,7 +551,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 		if (traceback == 2) {
 			int32_t i_n = b[j+1].k + 1;
 			int32_t i_q = (int32_t)b[j+1].vd - GWF_DIAG_SHIFT + i_n;
-			if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = tb;
+			buf->tbm[v][i_q * (g->len[v]+2) + i_n] = tb;
 		}
 	}
 	if (n >= 2) {
@@ -563,9 +563,9 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 			int32_t i_n = b[n].k + 1;
 			int32_t i_q = (int32_t)b[n].vd - GWF_DIAG_SHIFT + i_n;
 			if (a[n-2].k > a[n-1].k + 1) { // add an insertion
-				if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3; // mark insertion
+				buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3; // mark insertion
 			} else { // add a mismatch
-				if (buf->tbm[v][i_q * (g->len[v]+2) + i_n] == 0) buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4; // mark mismatch
+				buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4; // mark mismatch
 			}
 		}
 	}
