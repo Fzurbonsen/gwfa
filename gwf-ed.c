@@ -796,11 +796,11 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 #endif
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
-	if (traceback == 2) {
-		FILE* outputFile = fopen("./test_file.txt", "w");
-		gwf_print_trace_mat(outputFile, &buf, g, ql, q);
-		fclose(outputFile);
-	}
+	// if (traceback == 2) {
+	// 	FILE* outputFile = fopen("./test_file.txt", "w");
+	// 	gwf_print_trace_mat(outputFile, &buf, g, ql, q);
+	// 	fclose(outputFile);
+	// }
 	if (traceback == 2) gwf_walk_trace_mat(&buf, path, g, ql);
 	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
 	gwf_set64_destroy(buf.ha);
@@ -882,12 +882,12 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 #endif
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
-	if (traceback == 2) {
-		FILE* outputFile = fopen("./test_file.txt", "w");
-		gwf_print_trace_mat(outputFile, &buf, g, ql, q);
-		fclose(outputFile);
-	}
-	fprintf(stderr, "end_v: %i\tend_off: %i\n", path->end_v, path->end_off);
+	// if (traceback == 2) {
+	// 	FILE* outputFile = fopen("./test_file.txt", "w");
+	// 	gwf_print_trace_mat(outputFile, &buf, g, ql, q);
+	// 	fclose(outputFile);
+	// }
+	// fprintf(stderr, "end_v: %i\tend_off: %i\n", path->end_v, path->end_off);
 	if (traceback == 2) gwf_walk_trace_mat(&buf, path, g, ql);
 	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
 	gwf_set64_destroy(buf.ha);
