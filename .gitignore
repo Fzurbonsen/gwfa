@@ -1,2 +1,4 @@
 .*.swp
 *.o
+gwf-test
+*.a
