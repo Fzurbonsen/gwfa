@@ -478,8 +478,6 @@ static inline int32_t gwf_extend1_sse2(int32_t d, int32_t k, int32_t vl, const c
 	int32_t max_k = (ql - d < vl? ql - d : vl) - 1;
 	const char *ts_ = ts + 1, *qs_ = qs + d + 1;
 
-	fprintf(stderr, "running sse2");
-
 	while (k + 15 < max_k) {
 		__m128i x = _mm_loadu_si128((const __m128i *)(ts_ + k));
 		__m128i y = _mm_loadu_si128((const __m128i *)(qs_ + k));
