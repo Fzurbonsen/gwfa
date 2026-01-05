@@ -688,7 +688,12 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = t.k; // wavefront position on the vertex
 		vl = g->len[v]; // $vl is the vertex length
 
-		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
+		if (sse2_enable) {
+			k = gwf_extend1_sse2(d, k, vl, g->seq[v], ql, q);
+		} else {
+			k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
+		}
+		
 		if (traceback == 2) { // add matches to tbm
 			int32_t start = t.k+1;
 			int32_t end   = k+1;
