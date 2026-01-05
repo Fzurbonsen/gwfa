@@ -5,6 +5,13 @@
 #include "kalloc.h"
 #include "ksort.h"
 
+/********
+ * SSE2 *
+ ********/
+
+#include <emmintrin.h>   // SSE2
+int32_t sse2_enable = 0;
+
 /**********************
  * Indexing the graph *
  **********************/
@@ -464,6 +471,42 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 	return k;
 }
 
+
+// reach the wavefront with SSE2 enabled
+static inline int32_t gwf_extend1_sse2(int32_t d, int32_t k, int32_t vl, const char *ts, int32_t ql, const char *qs)
+{
+	int32_t max_k = (ql - d < vl? ql - d : vl) - 1;
+	const char *ts_ = ts + 1, *qs_ = qs + d + 1;
+
+	while (k + 15 < max_k) {
+		__m128i x = _mm_loadu_si128((const __m128i *)(ts_ + k));
+		__m128i y = _mm_loadu_si128((const __m128i *)(qs_ + k));
+
+		// byte-wise comparison
+		__m128i eq = _mm_cmpeq_epi8(x, y);
+
+		// create 16-bit mask: 1 = equal, 0 = mismatch
+		uint32_t mask = (uint32_t)_mm_movemask_epi8(eq);
+
+		if (mask == 0xFFFFu) {
+			// no mismatch
+			k += 16;
+		} else {
+			// we find a mismatch
+			k += __builtin_ctz(~mask);
+			return k;
+		}
+	}
+
+	// scalar cleanup
+	while (k < max_k && ts_[k] == qs_[k])
+		++k;
+	return k;
+}
+
+
+
+
 // This is essentially Landau-Vishkin for linear sequences. The function speeds up alignment to long vertices. Not really necessary.
 static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t n, gwf_diag_t *a, gwf_diag_v *B,
 								kdq_t(gwf_diag_t) *A, gwf_intv_v *tmp_intv, int32_t traceback, gwf_edbuf_t* buf)
@@ -477,7 +520,11 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	// wfa_extend
 	for (j = 0; j < n; ++j) {
 		int32_t k;
-		k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		if (sse2_enable) {
+			k = gwf_extend1_sse2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		} else {
+			k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		}
 
 		if (traceback == 2) { // add matches to tbm
 			int32_t start = a[j].k+1; // +1 as there is the query starts at idx 1 and not 0
@@ -894,5 +941,50 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 	gwf_map64_destroy(buf.ht);
 	kfree(km, buf.intv.a); kfree(km, buf.tmp.a); kfree(km, buf.swap.a); kfree(km, buf.t.a);
 	path->s = path->end_v >= 0? s : -1;
+	return path->s; // end_v < 0 could happen if v0 can't reach v1
+}
+
+
+// gwfa extended with SIMD
+int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v0, int32_t v1, uint32_t max_lag, int32_t traceback, gwf_path_t *path)
+{
+	sse2_enable = 1; // enable SSE2 to use SIMD instructions
+	int32_t s = 0, n_a = 1, end_tb;
+	gwf_diag_t *a;
+	gwf_edbuf_t buf;
+	char* cigar;
+
+	memset(&buf, 0, sizeof(buf));
+	buf.km = km;
+	buf.ha = gwf_set64_init2(km);
+	buf.ht = gwf_map64_init2(km);
+	kv_resize(gwf_trace_t, km, buf.t, g->n_vtx + 16);
+	KCALLOC(km, a, 1);
+	a[0].vd = gwf_gen_vd(v0, 0), a[0].k = -1, a[0].xo = 0; // the initial state
+
+	if (traceback) a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
+	if (traceback == 2) gwf_init_trace_mat(&buf, g, ql);
+	while (n_a > 0) {
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
+		if (path->end_off >= 0 || n_a == 0) break;
+		++s;
+#ifdef GWF_DEBUG
+		// printf("[%s] dist=%d, n=%d, n_intv=%ld, n_tb=%ld\n", __func__, s, n_a, buf.intv.n, buf.t.n);
+#endif
+	}
+	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
+	// if (traceback == 2) {
+	// 	FILE* outputFile = fopen("./test_file.txt", "w");
+	// 	gwf_print_trace_mat(outputFile, &buf, g, ql, q);
+	// 	fclose(outputFile);
+	// }
+	if (traceback == 2) gwf_walk_trace_mat(&buf, path, g, ql);
+	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
+	gwf_set64_destroy(buf.ha);
+	gwf_map64_destroy(buf.ht);
+	kfree(km, buf.intv.a); kfree(km, buf.tmp.a); kfree(km, buf.swap.a); kfree(km, buf.t.a);
+	path->s = path->end_v >= 0? s : -1;
+
+	sse2_enable = 0; // disable SSE2 to ensure safety
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
 }
