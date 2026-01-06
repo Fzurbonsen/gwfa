@@ -778,17 +778,6 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		} else {
 			k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
 		}
-		
-		if (traceback == 2) { // add matches to tbm
-			int32_t start = t.k+1;
-			int32_t end   = k+1;
-			int32_t vd    = d;
-			for (int32_t i = start+1; i <= end; ++i) {
-				int32_t qi = vd + i; // query index
-				int32_t ni = i;      // node index
-				if (buf->tbm[v][qi * (g->len[v]+2) + ni] == 0) buf->tbm[v][qi * (g->len[v]+2) + ni] = 1;
-			}
-		}
 
 		i = k + d; // query position
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
@@ -821,14 +810,6 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				} else if (absent) {
 					gwf_diag_push(buf->km, &B, w, i-ol,   ol, x0 + 1, 1, tw);
 					gwf_diag_push(buf->km, &B, w, i+1-ol, ol, x0 + 2, 1, tw);
-					if (traceback == 2) { // add mismatch and deletion
-						int32_t i_n = ol + 1;
-						int32_t i_q = i+1;
-						if (buf->tbm[w][i_q * (g->len[w]+2) + i_n] == 0) buf->tbm[w][i_q * (g->len[w]+2) + i_n] = 2;
-						i_n = ol + 1;
-						i_q = i+1+1;
-						if (buf->tbm[w][i_q * (g->len[w]+2) + i_n] == 0) buf->tbm[w][i_q * (g->len[w]+2) + i_n] = 4;
-					}
 				}
 			}
 			if (nv == 0 || n_ext != nv) // add an insertion to the target; this *might* cause a duplicate in corner cases
