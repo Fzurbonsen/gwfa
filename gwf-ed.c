@@ -12,6 +12,11 @@
 #include <emmintrin.h>   // SSE2
 int32_t sse2_enable = 0;
 
+static inline __m128i select_epi16(__m128i mask, __m128i a, __m128i b) {
+	return _mm_or_si128(_mm_and_si128(mask, a),
+											 _mm_andnot_si128(mask, b));
+}
+
 /**********************
  * Indexing the graph *
  **********************/
@@ -511,7 +516,7 @@ static inline int32_t gwf_extend1_sse2(int32_t d, int32_t k, int32_t vl, const c
 static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t n, gwf_diag_t *a, gwf_diag_v *B,
 								kdq_t(gwf_diag_t) *A, gwf_intv_v *tmp_intv, int32_t traceback, gwf_edbuf_t* buf)
 {
-	int32_t j, m;
+	int32_t i, j, m;
 	int32_t v = a->vd>>32;
 	int32_t vl = g->len[v];
 	const char *ts = g->seq[v];
@@ -526,17 +531,6 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 			k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 		}
 
-		if (traceback == 2) { // add matches to tbm
-			int32_t start = a[j].k+1; // +1 as there is the query starts at idx 1 and not 0
-			int32_t end   = k+1;
-			int32_t d     = (int32_t)a[j].vd - GWF_DIAG_SHIFT;
-			for (int32_t i = start+1; i <= end; ++i) {
-				int32_t qi = d + i; // query index
-				int32_t ni = i;      // node index
-				buf->tbm[v][qi * (g->len[v]+2) + ni] = 1;
-			}
-		}
-
 		a[j].xo += (k - a[j].k) << 2;
 		a[j].k = k;
 	}
@@ -548,83 +542,174 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	b[0].xo = a[0].xo + 2; // 2 == 1<<1
 	b[0].k = a[0].k + 1;
 	b[0].t = a[0].t;
-	if (traceback == 2) {
-		int32_t i_n = b[0].k + 1;
-		int32_t i_q = (int32_t)b[0].vd - GWF_DIAG_SHIFT + i_n;
-		buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
-	}
 
 
 	b[1].vd = a[0].vd;
 	b[1].xo =  n == 1 || a[0].k > a[1].k? a[0].xo + 4 : a[1].xo + 2;
 	b[1].t  =  n == 1 || a[0].k > a[1].k? a[0].t : a[1].t;
 	b[1].k  = (n == 1 || a[0].k > a[1].k? a[0].k : a[1].k) + 1;
-	if (traceback == 2) {
-		int32_t i_n = b[1].k + 1;
-		int32_t i_q = (int32_t)b[1].vd - GWF_DIAG_SHIFT + i_n;
-		if (n == 1 || a[0].k > a[1].k) { // add a mismatch
-			buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4; // mark mismatch
-		} else { // add a deletion
-			buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 2; // mark deletion
+
+	// set loop base
+	j = 1;
+
+	if (sse2_enable) {
+
+		for (; j + 7 < n - 1; j += 8) {
+			
+			// load k values
+			__m128i k0 = _mm_set_epi16((uint16_t)a[j+6].k,
+																(uint16_t)a[j+5].k,
+																(uint16_t)a[j+4].k,
+																(uint16_t)a[j+3].k,
+																(uint16_t)a[j+2].k,
+																(uint16_t)a[j+1].k,
+																(uint16_t)a[j].k,
+																(uint16_t)a[j-1].k);
+
+			__m128i k1 = _mm_set_epi16((uint16_t)a[j+7].k,
+																(uint16_t)a[j+6].k,
+																(uint16_t)a[j+5].k,
+																(uint16_t)a[j+4].k,
+																(uint16_t)a[j+3].k,
+																(uint16_t)a[j+2].k,
+																(uint16_t)a[j+1].k,
+																(uint16_t)a[j].k);
+			k1 = _mm_add_epi16(k1, _mm_set1_epi16(1)); // + 1, we move one
+
+			__m128i k2 = _mm_set_epi16((uint16_t)a[j+8].k,
+																(uint16_t)a[j+7].k,
+																(uint16_t)a[j+6].k,
+																(uint16_t)a[j+5].k,
+																(uint16_t)a[j+4].k,
+																(uint16_t)a[j+3].k,
+																(uint16_t)a[j+2].k,
+																(uint16_t)a[j+1].k);
+			k2 = _mm_add_epi16(k2, _mm_set1_epi16(1)); // + 1, we move one
+
+			// compare k0 and k1
+			__m128i m01 = _mm_cmpgt_epi16(k0, k1);
+			__m128i k01 = select_epi16(m01, k0, k1);
+
+			// compare k01 and k2
+			__m128i m = _mm_cmpgt_epi16(k01, k2);
+			__m128i k = select_epi16(m, k01, k2);
+
+			// build masks
+			__m128i mask2 = _mm_andnot_si128(m, _mm_set1_epi16(-1));
+			__m128i mask1 = _mm_andnot_si128(m01, m);
+			__m128i mask0 = _mm_and_si128(m, m01);
+
+			// load xo values
+			__m128i xo0 = _mm_set_epi16((uint16_t)a[j+6].xo + 2,
+																(uint16_t)a[j+5].xo + 2,
+																(uint16_t)a[j+4].xo + 2,
+																(uint16_t)a[j+3].xo + 2,
+																(uint16_t)a[j+2].xo + 2,
+																(uint16_t)a[j+1].xo + 2,
+																(uint16_t)a[j].xo + 2,
+																(uint16_t)a[j-1].xo + 2);
+
+			__m128i xo1 = _mm_set_epi16((uint16_t)a[j+7].xo + 4,
+																(uint16_t)a[j+6].xo + 4,
+																(uint16_t)a[j+5].xo + 4,
+																(uint16_t)a[j+4].xo + 4,
+																(uint16_t)a[j+3].xo + 4,
+																(uint16_t)a[j+2].xo + 4,
+																(uint16_t)a[j+1].xo + 4,
+																(uint16_t)a[j].xo + 4);
+
+			__m128i xo2 = _mm_set_epi16((uint16_t)a[j+8].xo + 2,
+																(uint16_t)a[j+7].xo + 2,
+																(uint16_t)a[j+6].xo + 2,
+																(uint16_t)a[j+5].xo + 2,
+																(uint16_t)a[j+4].xo + 2,
+																(uint16_t)a[j+3].xo + 2,
+																(uint16_t)a[j+2].xo + 2,
+																(uint16_t)a[j+1].xo + 2);
+
+			// build xo results
+			__m128i xo = 
+				_mm_or_si128(
+					_mm_or_si128(
+						_mm_and_si128(mask0, xo0),
+						_mm_and_si128(mask1, xo1)),
+					_mm_and_si128(mask2, xo2));
+
+			// load t values
+			__m128i t0 = _mm_set_epi16((uint16_t)a[j+6].t,
+																(uint16_t)a[j+5].t,
+																(uint16_t)a[j+4].t,
+																(uint16_t)a[j+3].t,
+																(uint16_t)a[j+2].t,
+																(uint16_t)a[j+1].t,
+																(uint16_t)a[j].t,
+																(uint16_t)a[j-1].t);
+
+			__m128i t1 = _mm_set_epi16((uint16_t)a[j+7].t,
+																(uint16_t)a[j+6].t,
+																(uint16_t)a[j+5].t,
+																(uint16_t)a[j+4].t,
+																(uint16_t)a[j+3].t,
+																(uint16_t)a[j+2].t,
+																(uint16_t)a[j+1].t,
+																(uint16_t)a[j].t);
+
+			__m128i t2 = _mm_set_epi16((uint16_t)a[j+8].t,
+																(uint16_t)a[j+7].t,
+																(uint16_t)a[j+6].t,
+																(uint16_t)a[j+5].t,
+																(uint16_t)a[j+4].t,
+																(uint16_t)a[j+3].t,
+																(uint16_t)a[j+2].t,
+																(uint16_t)a[j+1].t);
+
+			// build t results
+			__m128i t = 
+				_mm_or_si128(
+					_mm_or_si128(
+						_mm_and_si128(mask0, t0),
+						_mm_and_si128(mask1, t1)),
+					_mm_and_si128(mask2, t2));
+
+			// cast into scalar values
+			uint16_t k_out[8], xo_out[8], t_out[8];
+			_mm_storeu_si128((__m128i*)k_out, k);
+			_mm_storeu_si128((__m128i*)xo_out, xo);
+			_mm_storeu_si128((__m128i*)t_out, t);
+
+			for (int lane = 0; lane < 8; ++lane) {
+				b[j+1+lane].k = k_out[lane];
+				b[j+1+lane].xo = xo_out[lane];
+				b[j+1+lane].t = t_out[lane];
+				b[j+1+lane].vd = a[j+lane].vd;
+			}
 		}
 	}
 
-	for (j = 1; j < n - 1; ++j) {
+	// scalar tail
+	for (; j < n - 1; ++j) {
 		uint32_t x = a[j-1].xo + 2;
 		int32_t k = a[j-1].k, t = a[j-1].t;
 		int8_t tb = 0;
 		x = k > a[j].k + 1? x : a[j].xo + 4;
 		t = k > a[j].k + 1? t : a[j].t;
-		if (traceback == 2) {
-			if (k > a[j].k + 1) { // add an insertion
-				tb = 3;
-			} else { // add a mismatch
-				tb = 4;
-			}
-		}
 		k = k > a[j].k + 1? k : a[j].k + 1;
 
 		x = k > a[j+1].k + 1? x : a[j+1].xo + 2;
 		t = k > a[j+1].k + 1? t : a[j+1].t;
-		if (traceback == 2) {
-			if (!(k > a[j+1].k + 1)) { // add a deletion
-				tb = 2;
-			}
-		}
 		k = k > a[j+1].k + 1? k : a[j+1].k + 1;
 		b[j+1].vd = a[j].vd, b[j+1].k = k, b[j+1].xo = x, b[j+1].t = t;
-
-		
-		if (traceback == 2) {
-			int32_t i_n = b[j+1].k + 1;
-			int32_t i_q = (int32_t)b[j+1].vd - GWF_DIAG_SHIFT + i_n;
-			buf->tbm[v][i_q * (g->len[v]+2) + i_n] = tb;
-		}
 	}
 	if (n >= 2) {
 		b[n].vd = a[n-1].vd;
 		b[n].xo = a[n-2].k > a[n-1].k + 1? a[n-2].xo + 2 : a[n-1].xo + 4;
 		b[n].t  = a[n-2].k > a[n-1].k + 1? a[n-2].t : a[n-1].t;
 		b[n].k  = a[n-2].k > a[n-1].k + 1? a[n-2].k : a[n-1].k + 1;
-		if (traceback == 2) {
-			int32_t i_n = b[n].k + 1;
-			int32_t i_q = (int32_t)b[n].vd - GWF_DIAG_SHIFT + i_n;
-			if (a[n-2].k > a[n-1].k + 1) { // add an insertion
-				buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3; // mark insertion
-			} else { // add a mismatch
-				buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 4; // mark mismatch
-			}
-		}
 	}
 	b[n+1].vd = a[n-1].vd + 1;
 	b[n+1].xo = a[n-1].xo + 2;
 	b[n+1].t  = a[n-1].t;
 	b[n+1].k  = a[n-1].k;
-	if (traceback == 2) {
-		int32_t i_n = b[n+1].k + 1;
-		int32_t i_q = (int32_t)b[n+1].vd - GWF_DIAG_SHIFT + i_n;
-		buf->tbm[v][i_q * (g->len[v]+2) + i_n] = 3; // mark insertion
-	}
 
 	// drop out-of-bound cells
 	for (j = 0; j < n; ++j) {
