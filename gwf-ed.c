@@ -6,13 +6,25 @@
 #include "ksort.h"
 
 /********
- * SSE2 *
+ * SIMD *
  ********/
 
-#include <emmintrin.h>   // SSE2
-int32_t sse2_enable = 0;
+typedef enum {
+	NONE,
+	SSE2,
+	AVX2
+} simd_e;
 
-static inline __m128i select_epi16(__m128i mask, __m128i a, __m128i b) {
+simd_e simd_type = NONE;
+
+#include <emmintrin.h>   // SSE2
+#include <immintrin.h> // AVX + AVX2
+
+int32_t avx2_available() {
+	return __builtin_cpu_supports("avx2");
+}
+
+static inline __m128i mm128_select_epi16(__m128i mask, __m128i a, __m128i b) {
 	return _mm_or_si128(_mm_and_si128(mask, a),
 											 _mm_andnot_si128(mask, b));
 }
@@ -510,6 +522,331 @@ static inline int32_t gwf_extend1_sse2(int32_t d, int32_t k, int32_t vl, const c
 }
 
 
+// reach the wavefront with AVX2
+static inline int32_t gwf_extend1_avx2(int32_t d, int32_t k, int32_t vl, const char *ts, int32_t ql, const char *qs)
+{
+	int32_t max_k = (ql - d < vl? ql - d : vl) - 1;
+	const char *ts_ = ts + 1, *qs_ = qs + d + 1;
+
+	while (k + 15 < max_k) {
+		__m256i x = _mm256_loadu_si256((const __m256i *)(ts_ + k));
+		__m256i y = _mm256_loadu_si256((const __m256i *)(qs_ + k));
+
+		// byte-wise comparison
+		__m256i eq = _mm256_cmpeq_epi8(x, y);
+
+		// create 16-bit mask: 1 = equal, 0 = mismatch
+		uint32_t mask = (uint32_t)_mm256_movemask_epi8(eq);
+
+		if (mask == 0xFFFFFFFFu) {
+			// no mismatch
+			k += 32;
+		} else {
+			// we find a mismatch
+			k += __builtin_ctz(~mask);
+			return k;
+		}
+	}
+
+	// scalar cleanup
+	while (k < max_k && ts_[k] == qs_[k])
+		++k;
+	return k;
+}
+
+
+// expand batch section accelerated with SSE2 SIMD
+static inline int32_t gwf_expand_sse2(int32_t j, int32_t n, gwf_diag_t* a, gwf_diag_t* b)
+{
+	for (; j + 7 < n - 1; j += 8) {
+			
+		// load k values
+		__m128i k0 = _mm_set_epi16((uint16_t)a[j+6].k,
+															(uint16_t)a[j+5].k,
+															(uint16_t)a[j+4].k,
+															(uint16_t)a[j+3].k,
+															(uint16_t)a[j+2].k,
+															(uint16_t)a[j+1].k,
+															(uint16_t)a[j].k,
+															(uint16_t)a[j-1].k);
+
+		__m128i k1 = _mm_set_epi16((uint16_t)a[j+7].k,
+															(uint16_t)a[j+6].k,
+															(uint16_t)a[j+5].k,
+															(uint16_t)a[j+4].k,
+															(uint16_t)a[j+3].k,
+															(uint16_t)a[j+2].k,
+															(uint16_t)a[j+1].k,
+															(uint16_t)a[j].k);
+		k1 = _mm_add_epi16(k1, _mm_set1_epi16(1)); // + 1, we move one
+
+		__m128i k2 = _mm_set_epi16((uint16_t)a[j+8].k,
+															(uint16_t)a[j+7].k,
+															(uint16_t)a[j+6].k,
+															(uint16_t)a[j+5].k,
+															(uint16_t)a[j+4].k,
+															(uint16_t)a[j+3].k,
+															(uint16_t)a[j+2].k,
+															(uint16_t)a[j+1].k);
+		k2 = _mm_add_epi16(k2, _mm_set1_epi16(1)); // + 1, we move one
+
+		// compare k0 and k1
+		__m128i m01 = _mm_cmpgt_epi16(k0, k1);
+		__m128i k01 = mm128_select_epi16(m01, k0, k1);
+
+		// compare k01 and k2
+		__m128i m = _mm_cmpgt_epi16(k01, k2);
+		__m128i k = mm128_select_epi16(m, k01, k2);
+
+		// build masks
+		__m128i mask2 = _mm_andnot_si128(m, _mm_set1_epi16(-1));
+		__m128i mask1 = _mm_andnot_si128(m01, m);
+		__m128i mask0 = _mm_and_si128(m, m01);
+
+		// load xo values
+		__m128i xo0 = _mm_set_epi16((uint16_t)a[j+6].xo + 2,
+															(uint16_t)a[j+5].xo + 2,
+															(uint16_t)a[j+4].xo + 2,
+															(uint16_t)a[j+3].xo + 2,
+															(uint16_t)a[j+2].xo + 2,
+															(uint16_t)a[j+1].xo + 2,
+															(uint16_t)a[j].xo + 2,
+															(uint16_t)a[j-1].xo + 2);
+
+		__m128i xo1 = _mm_set_epi16((uint16_t)a[j+7].xo + 4,
+															(uint16_t)a[j+6].xo + 4,
+															(uint16_t)a[j+5].xo + 4,
+															(uint16_t)a[j+4].xo + 4,
+															(uint16_t)a[j+3].xo + 4,
+															(uint16_t)a[j+2].xo + 4,
+															(uint16_t)a[j+1].xo + 4,
+															(uint16_t)a[j].xo + 4);
+
+		__m128i xo2 = _mm_set_epi16((uint16_t)a[j+8].xo + 2,
+															(uint16_t)a[j+7].xo + 2,
+															(uint16_t)a[j+6].xo + 2,
+															(uint16_t)a[j+5].xo + 2,
+															(uint16_t)a[j+4].xo + 2,
+															(uint16_t)a[j+3].xo + 2,
+															(uint16_t)a[j+2].xo + 2,
+															(uint16_t)a[j+1].xo + 2);
+
+		// build xo results
+		__m128i xo = 
+			_mm_or_si128(
+				_mm_or_si128(
+					_mm_and_si128(mask0, xo0),
+					_mm_and_si128(mask1, xo1)),
+				_mm_and_si128(mask2, xo2));
+
+		// load t values
+		__m128i t0 = _mm_set_epi16((uint16_t)a[j+6].t,
+															(uint16_t)a[j+5].t,
+															(uint16_t)a[j+4].t,
+															(uint16_t)a[j+3].t,
+															(uint16_t)a[j+2].t,
+															(uint16_t)a[j+1].t,
+															(uint16_t)a[j].t,
+															(uint16_t)a[j-1].t);
+
+		__m128i t1 = _mm_set_epi16((uint16_t)a[j+7].t,
+															(uint16_t)a[j+6].t,
+															(uint16_t)a[j+5].t,
+															(uint16_t)a[j+4].t,
+															(uint16_t)a[j+3].t,
+															(uint16_t)a[j+2].t,
+															(uint16_t)a[j+1].t,
+															(uint16_t)a[j].t);
+
+		__m128i t2 = _mm_set_epi16((uint16_t)a[j+8].t,
+															(uint16_t)a[j+7].t,
+															(uint16_t)a[j+6].t,
+															(uint16_t)a[j+5].t,
+															(uint16_t)a[j+4].t,
+															(uint16_t)a[j+3].t,
+															(uint16_t)a[j+2].t,
+															(uint16_t)a[j+1].t);
+
+		// build t results
+		__m128i t = 
+			_mm_or_si128(
+				_mm_or_si128(
+					_mm_and_si128(mask0, t0),
+					_mm_and_si128(mask1, t1)),
+				_mm_and_si128(mask2, t2));
+
+		// cast into scalar values
+		uint16_t k_out[8], xo_out[8], t_out[8];
+		_mm_storeu_si128((__m128i*)k_out, k);
+		_mm_storeu_si128((__m128i*)xo_out, xo);
+		_mm_storeu_si128((__m128i*)t_out, t);
+
+		for (int lane = 0; lane < 8; ++lane) {
+			b[j+1+lane].k = k_out[lane];
+			b[j+1+lane].xo = xo_out[lane];
+			b[j+1+lane].t = t_out[lane];
+			b[j+1+lane].vd = a[j+lane].vd;
+		}
+	}
+
+	return j;
+}
+
+
+// expand batch section accelerated with SSE2 SIMD
+static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_diag_t* b)
+{
+	for (; j + 15 < n - 1; j += 16) {
+
+		// load k values
+		__m256i k0 = _mm256_set_epi16(
+			(uint16_t)a[j+14].k, (uint16_t)a[j+13].k,
+			(uint16_t)a[j+12].k, (uint16_t)a[j+11].k,
+			(uint16_t)a[j+10].k, (uint16_t)a[j+9].k,
+			(uint16_t)a[j+8].k,  (uint16_t)a[j+7].k,
+			(uint16_t)a[j+6].k,  (uint16_t)a[j+5].k,
+			(uint16_t)a[j+4].k,  (uint16_t)a[j+3].k,
+			(uint16_t)a[j+2].k,  (uint16_t)a[j+1].k,
+			(uint16_t)a[j].k,    (uint16_t)a[j-1].k
+		);
+
+		__m256i k1 = _mm256_set_epi16(
+			(uint16_t)a[j+15].k, (uint16_t)a[j+14].k,
+			(uint16_t)a[j+13].k, (uint16_t)a[j+12].k,
+			(uint16_t)a[j+11].k, (uint16_t)a[j+10].k,
+			(uint16_t)a[j+9].k,  (uint16_t)a[j+8].k,
+			(uint16_t)a[j+7].k,  (uint16_t)a[j+6].k,
+			(uint16_t)a[j+5].k,  (uint16_t)a[j+4].k,
+			(uint16_t)a[j+3].k,  (uint16_t)a[j+2].k,
+			(uint16_t)a[j+1].k,  (uint16_t)a[j].k
+		);
+		k1 = _mm256_add_epi16(k1, _mm256_set1_epi16(1)); // + 1, we move one
+
+		__m256i k2 = _mm256_set_epi16(
+			(uint16_t)a[j+16].k, (uint16_t)a[j+15].k,
+			(uint16_t)a[j+14].k, (uint16_t)a[j+13].k,
+			(uint16_t)a[j+12].k, (uint16_t)a[j+11].k,
+			(uint16_t)a[j+10].k,  (uint16_t)a[j+9].k,
+			(uint16_t)a[j+8].k,  (uint16_t)a[j+7].k,
+			(uint16_t)a[j+6].k,  (uint16_t)a[j+5].k,
+			(uint16_t)a[j+4].k,  (uint16_t)a[j+3].k,
+			(uint16_t)a[j+2].k,  (uint16_t)a[j+1].k
+		);
+		k2 = _mm256_add_epi16(k2, _mm256_set1_epi16(1)); // + 1, we move one
+		
+		// compare k0 to k1
+		__m256i m01 = _mm256_cmpgt_epi16(k0, k1);
+		__m256i k01 = _mm256_blendv_epi8(k1, k0, m01);
+
+		// compare k01 to k2
+		__m256i m = _mm256_cmpgt_epi16(k01, k2);
+		__m256i k = _mm256_blendv_epi8(k2, k01, m);
+
+		// build masks
+		__m256i mask2 = _mm256_andnot_si256(m, _mm256_set1_epi16(-1));
+		__m256i mask1 = _mm256_andnot_si256(m01, m);
+		__m256i mask0 = _mm256_and_si256(m, m01);
+
+		// load xo values values
+		__m256i xo0 = _mm256_set_epi16(
+			(uint16_t)a[j+14].xo + 2, (uint16_t)a[j+13].xo + 2,
+			(uint16_t)a[j+12].xo + 2, (uint16_t)a[j+11].xo + 2,
+			(uint16_t)a[j+10].xo + 2, (uint16_t)a[j+9].xo + 2,
+			(uint16_t)a[j+8].xo + 2,  (uint16_t)a[j+7].xo + 2,
+			(uint16_t)a[j+6].xo + 2,  (uint16_t)a[j+5].xo + 2,
+			(uint16_t)a[j+4].xo + 2,  (uint16_t)a[j+3].xo + 2,
+			(uint16_t)a[j+2].xo + 2,  (uint16_t)a[j+1].xo + 2,
+			(uint16_t)a[j].xo + 2,    (uint16_t)a[j-1].xo + 2
+		);
+
+		__m256i xo1 = _mm256_set_epi16(
+			(uint16_t)a[j+15].xo + 4, (uint16_t)a[j+14].xo + 4,
+			(uint16_t)a[j+13].xo + 4, (uint16_t)a[j+12].xo + 4,
+			(uint16_t)a[j+11].xo + 4, (uint16_t)a[j+10].xo + 4,
+			(uint16_t)a[j+9].xo + 4,  (uint16_t)a[j+8].xo + 4,
+			(uint16_t)a[j+7].xo + 4,  (uint16_t)a[j+6].xo + 4,
+			(uint16_t)a[j+5].xo + 4,  (uint16_t)a[j+4].xo + 4,
+			(uint16_t)a[j+3].xo + 4,  (uint16_t)a[j+2].xo + 4,
+			(uint16_t)a[j+1].xo + 4,  (uint16_t)a[j].xo + 4
+		);
+
+		__m256i xo2 = _mm256_set_epi16(
+			(uint16_t)a[j+16].xo + 2, (uint16_t)a[j+15].xo + 2,
+			(uint16_t)a[j+14].xo + 2, (uint16_t)a[j+13].xo + 2,
+			(uint16_t)a[j+12].xo + 2, (uint16_t)a[j+11].xo + 2,
+			(uint16_t)a[j+10].xo + 2,  (uint16_t)a[j+9].xo + 2,
+			(uint16_t)a[j+8].xo + 2,  (uint16_t)a[j+7].xo + 2,
+			(uint16_t)a[j+6].xo + 2,  (uint16_t)a[j+5].xo + 2,
+			(uint16_t)a[j+4].xo + 2,  (uint16_t)a[j+3].xo + 2,
+			(uint16_t)a[j+2].xo + 2,  (uint16_t)a[j+1].xo + 2
+		);
+
+		// build xo results
+		__m256i xo = 
+			_mm256_or_si256(
+				_mm256_or_si256(
+					_mm256_and_si256(mask0, xo0),
+					_mm256_and_si256(mask1, xo1)),
+				_mm256_and_si256(mask2, xo2));
+
+		// load t values
+		__m256i t0 = _mm256_set_epi16(
+			(uint16_t)a[j+14].t, (uint16_t)a[j+13].t,
+			(uint16_t)a[j+12].t, (uint16_t)a[j+11].t,
+			(uint16_t)a[j+10].t, (uint16_t)a[j+9].t,
+			(uint16_t)a[j+8].t,  (uint16_t)a[j+7].t,
+			(uint16_t)a[j+6].t,  (uint16_t)a[j+5].t,
+			(uint16_t)a[j+4].t,  (uint16_t)a[j+3].t,
+			(uint16_t)a[j+2].t,  (uint16_t)a[j+1].t,
+			(uint16_t)a[j].t,    (uint16_t)a[j-1].t
+		);
+
+		__m256i t1 = _mm256_set_epi16(
+			(uint16_t)a[j+15].t, (uint16_t)a[j+14].t,
+			(uint16_t)a[j+13].t, (uint16_t)a[j+12].t,
+			(uint16_t)a[j+11].t, (uint16_t)a[j+10].t,
+			(uint16_t)a[j+9].t,  (uint16_t)a[j+8].t,
+			(uint16_t)a[j+7].t,  (uint16_t)a[j+6].t,
+			(uint16_t)a[j+5].t,  (uint16_t)a[j+4].t,
+			(uint16_t)a[j+3].t,  (uint16_t)a[j+2].t,
+			(uint16_t)a[j+1].t,  (uint16_t)a[j].t
+		);
+
+		__m256i t2 = _mm256_set_epi16(
+			(uint16_t)a[j+16].t, (uint16_t)a[j+15].t,
+			(uint16_t)a[j+14].t, (uint16_t)a[j+13].t,
+			(uint16_t)a[j+12].t, (uint16_t)a[j+11].t,
+			(uint16_t)a[j+10].t,  (uint16_t)a[j+9].t,
+			(uint16_t)a[j+8].t,  (uint16_t)a[j+7].t,
+			(uint16_t)a[j+6].t,  (uint16_t)a[j+5].t,
+			(uint16_t)a[j+4].t,  (uint16_t)a[j+3].t,
+			(uint16_t)a[j+2].t,  (uint16_t)a[j+1].t
+		);
+
+		// build t results
+		__m256i t = 
+			_mm256_or_si256(
+				_mm256_or_si256(
+					_mm256_and_si256(mask0, t0),
+					_mm256_and_si256(mask1, t1)),
+				_mm256_and_si256(mask2, t2));
+
+		// cast into scalar values
+		uint16_t k_out[16], xo_out[16], t_out[16];
+		_mm256_storeu_si256((__m128i*)k_out, k);
+		_mm256_storeu_si256((__m128i*)xo_out, xo);
+		_mm256_storeu_si256((__m128i*)t_out, t);
+
+		for (int lane = 0; lane < 16; ++lane) {
+			b[j+1+lane].k = k_out[lane];
+			b[j+1+lane].xo = xo_out[lane];
+			b[j+1+lane].t = t_out[lane];
+			b[j+1+lane].vd = a[j+lane].vd;
+		}
+	}
+
+	return j;
+}
 
 
 // This is essentially Landau-Vishkin for linear sequences. The function speeds up alignment to long vertices. Not really necessary.
@@ -525,10 +862,12 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	// wfa_extend
 	for (j = 0; j < n; ++j) {
 		int32_t k;
-		if (sse2_enable) {
+		if (simd_type == SSE2) {
 			k = gwf_extend1_sse2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		} else if (simd_type == AVX2) {
+			k = gwf_extend1_avx2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 		} else {
-			k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+			gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 		}
 
 		a[j].xo += (k - a[j].k) << 2;
@@ -552,138 +891,15 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	// set loop base
 	j = 1;
 
-	if (sse2_enable) {
+	if (simd_type == SSE2) {
 
-		for (; j + 7 < n - 1; j += 8) {
-			
-			// load k values
-			__m128i k0 = _mm_set_epi16((uint16_t)a[j+6].k,
-																(uint16_t)a[j+5].k,
-																(uint16_t)a[j+4].k,
-																(uint16_t)a[j+3].k,
-																(uint16_t)a[j+2].k,
-																(uint16_t)a[j+1].k,
-																(uint16_t)a[j].k,
-																(uint16_t)a[j-1].k);
+		j = gwf_expand_sse2(j, n, a, b);
 
-			__m128i k1 = _mm_set_epi16((uint16_t)a[j+7].k,
-																(uint16_t)a[j+6].k,
-																(uint16_t)a[j+5].k,
-																(uint16_t)a[j+4].k,
-																(uint16_t)a[j+3].k,
-																(uint16_t)a[j+2].k,
-																(uint16_t)a[j+1].k,
-																(uint16_t)a[j].k);
-			k1 = _mm_add_epi16(k1, _mm_set1_epi16(1)); // + 1, we move one
+	} else if (simd_type == AVX2) {
 
-			__m128i k2 = _mm_set_epi16((uint16_t)a[j+8].k,
-																(uint16_t)a[j+7].k,
-																(uint16_t)a[j+6].k,
-																(uint16_t)a[j+5].k,
-																(uint16_t)a[j+4].k,
-																(uint16_t)a[j+3].k,
-																(uint16_t)a[j+2].k,
-																(uint16_t)a[j+1].k);
-			k2 = _mm_add_epi16(k2, _mm_set1_epi16(1)); // + 1, we move one
-
-			// compare k0 and k1
-			__m128i m01 = _mm_cmpgt_epi16(k0, k1);
-			__m128i k01 = select_epi16(m01, k0, k1);
-
-			// compare k01 and k2
-			__m128i m = _mm_cmpgt_epi16(k01, k2);
-			__m128i k = select_epi16(m, k01, k2);
-
-			// build masks
-			__m128i mask2 = _mm_andnot_si128(m, _mm_set1_epi16(-1));
-			__m128i mask1 = _mm_andnot_si128(m01, m);
-			__m128i mask0 = _mm_and_si128(m, m01);
-
-			// load xo values
-			__m128i xo0 = _mm_set_epi16((uint16_t)a[j+6].xo + 2,
-																(uint16_t)a[j+5].xo + 2,
-																(uint16_t)a[j+4].xo + 2,
-																(uint16_t)a[j+3].xo + 2,
-																(uint16_t)a[j+2].xo + 2,
-																(uint16_t)a[j+1].xo + 2,
-																(uint16_t)a[j].xo + 2,
-																(uint16_t)a[j-1].xo + 2);
-
-			__m128i xo1 = _mm_set_epi16((uint16_t)a[j+7].xo + 4,
-																(uint16_t)a[j+6].xo + 4,
-																(uint16_t)a[j+5].xo + 4,
-																(uint16_t)a[j+4].xo + 4,
-																(uint16_t)a[j+3].xo + 4,
-																(uint16_t)a[j+2].xo + 4,
-																(uint16_t)a[j+1].xo + 4,
-																(uint16_t)a[j].xo + 4);
-
-			__m128i xo2 = _mm_set_epi16((uint16_t)a[j+8].xo + 2,
-																(uint16_t)a[j+7].xo + 2,
-																(uint16_t)a[j+6].xo + 2,
-																(uint16_t)a[j+5].xo + 2,
-																(uint16_t)a[j+4].xo + 2,
-																(uint16_t)a[j+3].xo + 2,
-																(uint16_t)a[j+2].xo + 2,
-																(uint16_t)a[j+1].xo + 2);
-
-			// build xo results
-			__m128i xo = 
-				_mm_or_si128(
-					_mm_or_si128(
-						_mm_and_si128(mask0, xo0),
-						_mm_and_si128(mask1, xo1)),
-					_mm_and_si128(mask2, xo2));
-
-			// load t values
-			__m128i t0 = _mm_set_epi16((uint16_t)a[j+6].t,
-																(uint16_t)a[j+5].t,
-																(uint16_t)a[j+4].t,
-																(uint16_t)a[j+3].t,
-																(uint16_t)a[j+2].t,
-																(uint16_t)a[j+1].t,
-																(uint16_t)a[j].t,
-																(uint16_t)a[j-1].t);
-
-			__m128i t1 = _mm_set_epi16((uint16_t)a[j+7].t,
-																(uint16_t)a[j+6].t,
-																(uint16_t)a[j+5].t,
-																(uint16_t)a[j+4].t,
-																(uint16_t)a[j+3].t,
-																(uint16_t)a[j+2].t,
-																(uint16_t)a[j+1].t,
-																(uint16_t)a[j].t);
-
-			__m128i t2 = _mm_set_epi16((uint16_t)a[j+8].t,
-																(uint16_t)a[j+7].t,
-																(uint16_t)a[j+6].t,
-																(uint16_t)a[j+5].t,
-																(uint16_t)a[j+4].t,
-																(uint16_t)a[j+3].t,
-																(uint16_t)a[j+2].t,
-																(uint16_t)a[j+1].t);
-
-			// build t results
-			__m128i t = 
-				_mm_or_si128(
-					_mm_or_si128(
-						_mm_and_si128(mask0, t0),
-						_mm_and_si128(mask1, t1)),
-					_mm_and_si128(mask2, t2));
-
-			// cast into scalar values
-			uint16_t k_out[8], xo_out[8], t_out[8];
-			_mm_storeu_si128((__m128i*)k_out, k);
-			_mm_storeu_si128((__m128i*)xo_out, xo);
-			_mm_storeu_si128((__m128i*)t_out, t);
-
-			for (int lane = 0; lane < 8; ++lane) {
-				b[j+1+lane].k = k_out[lane];
-				b[j+1+lane].xo = xo_out[lane];
-				b[j+1+lane].t = t_out[lane];
-				b[j+1+lane].vd = a[j+lane].vd;
-			}
-		}
+		j = gwf_expand_avx2(j, n, a, b);
+		j = gwf_expand_sse2(j, n, a, b); // try to solve remaining section with sse2 instructions
+	
 	}
 
 	// scalar tail
@@ -773,8 +989,10 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = t.k; // wavefront position on the vertex
 		vl = g->len[v]; // $vl is the vertex length
 
-		if (sse2_enable) {
+		if (simd_type == SSE2) {
 			k = gwf_extend1_sse2(d, k, vl, g->seq[v], ql, q);
+		} else if (simd_type == AVX2) {
+			k = gwf_extend1_avx2(d, k, vl, g->seq[v], ql, q);
 		} else {
 			k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
 		}
@@ -934,7 +1152,6 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 		}
 		kv_push(gwf_diag_t, km, vec, diag);
 		n_a++;
-
 	}
 
 	if (traceback == 2) gwf_init_trace_mat(&buf, g, ql);
@@ -986,7 +1203,12 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 // gwfa extended with SIMD
 int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v0, int32_t v1, uint32_t max_lag, int32_t traceback, gwf_path_t *path)
 {
-	sse2_enable = 1; // enable SSE2 to use SIMD instructions
+	if (avx2_available()) {
+		simd_type = AVX2;
+	} else {
+		simd_type = SSE2;
+	}
+
 	int32_t s = 0, n_a = 1, end_tb;
 	gwf_diag_t *a;
 	gwf_edbuf_t buf;
@@ -1022,7 +1244,5 @@ int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, i
 	gwf_map64_destroy(buf.ht);
 	kfree(km, buf.intv.a); kfree(km, buf.tmp.a); kfree(km, buf.swap.a); kfree(km, buf.t.a);
 	path->s = path->end_v >= 0? s : -1;
-
-	sse2_enable = 0; // disable SSE2 to ensure safety
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
 }
