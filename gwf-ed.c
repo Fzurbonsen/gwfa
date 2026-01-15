@@ -5,6 +5,21 @@
 #include "kalloc.h"
 #include "ksort.h"
 
+/*******************
+ * Compiler Macros *
+ *******************/
+
+#ifdef __GNUC__
+#define LIKELY(x) __builtin_expect((x),1)
+#define UNLIKELY(x) __builtin_expect((x),0)
+#define INLINE inline __attribute__((always_inline))
+#else
+#define LIKELY(x) (x)
+#define UNLIKELY(x) (x)
+#define INLINE inline
+#endif
+
+
 /********
  * SIMD *
  ********/
@@ -28,6 +43,7 @@ static inline __m128i mm128_select_epi16(__m128i mask, __m128i a, __m128i b) {
 	return _mm_or_si128(_mm_and_si128(mask, a),
 											 _mm_andnot_si128(mask, b));
 }
+
 
 /**********************
  * Indexing the graph *
@@ -865,9 +881,9 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	// wfa_extend
 	for (j = 0; j < n; ++j) {
 		int32_t k;
-		if (simd_type == SSE2) {
+		if (UNLIKELY(simd_type == SSE2)) {
 			k = gwf_extend1_sse2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
-		} else if (simd_type == AVX2) {
+		} else if (LIKELY(simd_type == AVX2)) {
 			k = gwf_extend1_avx2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 		} else {
 			k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
@@ -992,9 +1008,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = t.k; // wavefront position on the vertex
 		vl = g->len[v]; // $vl is the vertex length
 
-		if (simd_type == SSE2) {
+		if (UNLIKELY(simd_type == SSE2)) {
 			k = gwf_extend1_sse2(d, k, vl, g->seq[v], ql, q);
-		} else if (simd_type == AVX2) {
+		} else if (LIKELY(simd_type == AVX2)) {
 			k = gwf_extend1_avx2(d, k, vl, g->seq[v], ql, q);
 		} else {
 			k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
