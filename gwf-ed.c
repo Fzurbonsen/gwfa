@@ -749,37 +749,40 @@ static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 
 		// load xo values values
 		__m256i xo0 = _mm256_set_epi16(
-			(uint16_t)a[j+14].xo + 2, (uint16_t)a[j+13].xo + 2,
-			(uint16_t)a[j+12].xo + 2, (uint16_t)a[j+11].xo + 2,
-			(uint16_t)a[j+10].xo + 2, (uint16_t)a[j+9].xo + 2,
-			(uint16_t)a[j+8].xo + 2,  (uint16_t)a[j+7].xo + 2,
-			(uint16_t)a[j+6].xo + 2,  (uint16_t)a[j+5].xo + 2,
-			(uint16_t)a[j+4].xo + 2,  (uint16_t)a[j+3].xo + 2,
-			(uint16_t)a[j+2].xo + 2,  (uint16_t)a[j+1].xo + 2,
-			(uint16_t)a[j].xo + 2,    (uint16_t)a[j-1].xo + 2
+			(uint16_t)a[j+14].xo, (uint16_t)a[j+13].xo,
+			(uint16_t)a[j+12].xo, (uint16_t)a[j+11].xo,
+			(uint16_t)a[j+10].xo, (uint16_t)a[j+9].xo,
+			(uint16_t)a[j+8].xo,  (uint16_t)a[j+7].xo,
+			(uint16_t)a[j+6].xo,  (uint16_t)a[j+5].xo,
+			(uint16_t)a[j+4].xo,  (uint16_t)a[j+3].xo,
+			(uint16_t)a[j+2].xo,  (uint16_t)a[j+1].xo,
+			(uint16_t)a[j].xo,    (uint16_t)a[j-1].xo
 		);
+		xo0 = _mm256_add_epi16(xo0, _mm256_set1_epi16(2));
 
 		__m256i xo1 = _mm256_set_epi16(
-			(uint16_t)a[j+15].xo + 4, (uint16_t)a[j+14].xo + 4,
-			(uint16_t)a[j+13].xo + 4, (uint16_t)a[j+12].xo + 4,
-			(uint16_t)a[j+11].xo + 4, (uint16_t)a[j+10].xo + 4,
-			(uint16_t)a[j+9].xo + 4,  (uint16_t)a[j+8].xo + 4,
-			(uint16_t)a[j+7].xo + 4,  (uint16_t)a[j+6].xo + 4,
-			(uint16_t)a[j+5].xo + 4,  (uint16_t)a[j+4].xo + 4,
-			(uint16_t)a[j+3].xo + 4,  (uint16_t)a[j+2].xo + 4,
-			(uint16_t)a[j+1].xo + 4,  (uint16_t)a[j].xo + 4
+			(uint16_t)a[j+15].xo, (uint16_t)a[j+14].xo,
+			(uint16_t)a[j+13].xo, (uint16_t)a[j+12].xo,
+			(uint16_t)a[j+11].xo, (uint16_t)a[j+10].xo,
+			(uint16_t)a[j+9].xo,  (uint16_t)a[j+8].xo,
+			(uint16_t)a[j+7].xo,  (uint16_t)a[j+6].xo,
+			(uint16_t)a[j+5].xo,  (uint16_t)a[j+4].xo,
+			(uint16_t)a[j+3].xo,  (uint16_t)a[j+2].xo,
+			(uint16_t)a[j+1].xo,  (uint16_t)a[j].xo
 		);
+		xo1 = _mm256_add_epi16(xo1, _mm256_set1_epi16(4));
 
 		__m256i xo2 = _mm256_set_epi16(
-			(uint16_t)a[j+16].xo + 2, (uint16_t)a[j+15].xo + 2,
-			(uint16_t)a[j+14].xo + 2, (uint16_t)a[j+13].xo + 2,
-			(uint16_t)a[j+12].xo + 2, (uint16_t)a[j+11].xo + 2,
-			(uint16_t)a[j+10].xo + 2,  (uint16_t)a[j+9].xo + 2,
-			(uint16_t)a[j+8].xo + 2,  (uint16_t)a[j+7].xo + 2,
-			(uint16_t)a[j+6].xo + 2,  (uint16_t)a[j+5].xo + 2,
-			(uint16_t)a[j+4].xo + 2,  (uint16_t)a[j+3].xo + 2,
-			(uint16_t)a[j+2].xo + 2,  (uint16_t)a[j+1].xo + 2
+			(uint16_t)a[j+16].xo, (uint16_t)a[j+15].xo,
+			(uint16_t)a[j+14].xo, (uint16_t)a[j+13].xo,
+			(uint16_t)a[j+12].xo, (uint16_t)a[j+11].xo,
+			(uint16_t)a[j+10].xo,  (uint16_t)a[j+9].xo,
+			(uint16_t)a[j+8].xo,  (uint16_t)a[j+7].xo,
+			(uint16_t)a[j+6].xo,  (uint16_t)a[j+5].xo,
+			(uint16_t)a[j+4].xo,  (uint16_t)a[j+3].xo,
+			(uint16_t)a[j+2].xo,  (uint16_t)a[j+1].xo
 		);
+		xo2 = _mm256_add_epi16(xo2, _mm256_set1_epi16(2));
 
 		// build xo results
 		__m256i xo = 
