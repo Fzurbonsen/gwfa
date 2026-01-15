@@ -867,7 +867,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 		} else if (simd_type == AVX2) {
 			k = gwf_extend1_avx2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 		} else {
-			gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+			k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 		}
 
 		a[j].xo += (k - a[j].k) << 2;
@@ -1203,12 +1203,11 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 // gwfa extended with SIMD
 int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v0, int32_t v1, uint32_t max_lag, int32_t traceback, gwf_path_t *path)
 {
-	// if (avx2_available()) {
-	// 	simd_type = AVX2;
-	// } else {
-	// 	simd_type = SSE2;
-	// }
-	simd_type = NONE;
+	if (avx2_available()) {
+		simd_type = AVX2;
+	} else {
+		simd_type = SSE2;
+	}
 
 	int32_t s = 0, n_a = 1, end_tb;
 	gwf_diag_t *a;
