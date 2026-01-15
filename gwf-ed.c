@@ -528,7 +528,7 @@ static inline int32_t gwf_extend1_avx2(int32_t d, int32_t k, int32_t vl, const c
 	int32_t max_k = (ql - d < vl? ql - d : vl) - 1;
 	const char *ts_ = ts + 1, *qs_ = qs + d + 1;
 
-	while (k + 15 < max_k) {
+	while (k + 31 < max_k) {
 		__m256i x = _mm256_loadu_si256((const __m256i *)(ts_ + k));
 		__m256i y = _mm256_loadu_si256((const __m256i *)(qs_ + k));
 
@@ -1203,11 +1203,12 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 // gwfa extended with SIMD
 int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v0, int32_t v1, uint32_t max_lag, int32_t traceback, gwf_path_t *path)
 {
-	if (avx2_available()) {
-		simd_type = AVX2;
-	} else {
-		simd_type = SSE2;
-	}
+	// if (avx2_available()) {
+	// 	simd_type = AVX2;
+	// } else {
+	// 	simd_type = SSE2;
+	// }
+	simd_type = NONE;
 
 	int32_t s = 0, n_a = 1, end_tb;
 	gwf_diag_t *a;
