@@ -628,7 +628,7 @@ static inline int32_t gwf_expand_sse2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 															(uint16_t)a[j+1].xo,
 															(uint16_t)a[j].xo,
 															(uint16_t)a[j-1].xo);
-		xo0 = _mm_add_epi16(xo0, _mm_set1_epi16(2));
+		xo0 = _mm_add_epi16(xo0, _mm_set1_epi16(2)); // + 2
 
 		__m128i xo1 = _mm_set_epi16((uint16_t)a[j+7].xo,
 															(uint16_t)a[j+6].xo,
@@ -638,7 +638,7 @@ static inline int32_t gwf_expand_sse2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 															(uint16_t)a[j+2].xo,
 															(uint16_t)a[j+1].xo,
 															(uint16_t)a[j].xo);
-		xo1 = _mm_add_epi16(xo1, _mm_set1_epi16(4));
+		xo1 = _mm_add_epi16(xo1, _mm_set1_epi16(4)); // + 4
 
 		__m128i xo2 = _mm_set_epi16((uint16_t)a[j+8].xo,
 															(uint16_t)a[j+7].xo,
@@ -648,7 +648,7 @@ static inline int32_t gwf_expand_sse2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 															(uint16_t)a[j+3].xo,
 															(uint16_t)a[j+2].xo,
 															(uint16_t)a[j+1].xo);
-		xo2 = _mm_add_epi16(xo2, _mm_set1_epi16(2));
+		xo2 = _mm_add_epi16(xo2, _mm_set1_epi16(2)); // + 2
 
 		// build xo results
 		__m128i xo = 
@@ -777,7 +777,7 @@ static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 			(uint16_t)a[j+2].xo,  (uint16_t)a[j+1].xo,
 			(uint16_t)a[j].xo,    (uint16_t)a[j-1].xo
 		);
-		xo0 = _mm256_add_epi16(xo0, _mm256_set1_epi16(2));
+		xo0 = _mm256_add_epi16(xo0, _mm256_set1_epi16(2)); // + 2
 
 		__m256i xo1 = _mm256_set_epi16(
 			(uint16_t)a[j+15].xo, (uint16_t)a[j+14].xo,
@@ -789,7 +789,7 @@ static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 			(uint16_t)a[j+3].xo,  (uint16_t)a[j+2].xo,
 			(uint16_t)a[j+1].xo,  (uint16_t)a[j].xo
 		);
-		xo1 = _mm256_add_epi16(xo1, _mm256_set1_epi16(4));
+		xo1 = _mm256_add_epi16(xo1, _mm256_set1_epi16(4)); // + 4
 
 		__m256i xo2 = _mm256_set_epi16(
 			(uint16_t)a[j+16].xo, (uint16_t)a[j+15].xo,
@@ -801,7 +801,7 @@ static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 			(uint16_t)a[j+4].xo,  (uint16_t)a[j+3].xo,
 			(uint16_t)a[j+2].xo,  (uint16_t)a[j+1].xo
 		);
-		xo2 = _mm256_add_epi16(xo2, _mm256_set1_epi16(2));
+		xo2 = _mm256_add_epi16(xo2, _mm256_set1_epi16(2)); // + 2
 
 		// build xo results
 		__m256i xo = 
@@ -884,13 +884,14 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	// wfa_extend
 	for (j = 0; j < n; ++j) {
 		int32_t k;
-		if (UNLIKELY(simd_type == SSE2)) {
-			k = gwf_extend1_sse2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
-		} else if (LIKELY(simd_type == AVX2)) {
-			k = gwf_extend1_avx2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
-		} else {
-			k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
-		}
+		k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		// if (UNLIKELY(simd_type == SSE2)) {
+		// 	k = gwf_extend1_sse2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		// } else if (LIKELY(simd_type == AVX2)) {
+		// 	k = gwf_extend1_avx2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		// } else {
+		// 	k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		// }
 
 		a[j].xo += (k - a[j].k) << 2;
 		a[j].k = k;
@@ -913,11 +914,11 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	// set loop base
 	j = 1;
 
-	if (simd_type == SSE2) {
+	if (UNLIKELY(simd_type == SSE2)) {
 
 		j = gwf_expand_sse2(j, n, a, b);
 
-	} else if (simd_type == AVX2) {
+	} else if (LIKELY(simd_type == AVX2)) {
 
 		j = gwf_expand_avx2(j, n, a, b);
 		j = gwf_expand_sse2(j, n, a, b); // try to solve remaining section with sse2 instructions
@@ -1011,13 +1012,14 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = t.k; // wavefront position on the vertex
 		vl = g->len[v]; // $vl is the vertex length
 
-		if (UNLIKELY(simd_type == SSE2)) {
-			k = gwf_extend1_sse2(d, k, vl, g->seq[v], ql, q);
-		} else if (LIKELY(simd_type == AVX2)) {
-			k = gwf_extend1_avx2(d, k, vl, g->seq[v], ql, q);
-		} else {
-			k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
-		}
+		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
+		// if (UNLIKELY(simd_type == SSE2)) {
+		// 	k = gwf_extend1_sse2(d, k, vl, g->seq[v], ql, q);
+		// } else if (LIKELY(simd_type == AVX2)) {
+		// 	k = gwf_extend1_avx2(d, k, vl, g->seq[v], ql, q);
+		// } else {
+		// 	k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
+		// }
 
 		i = k + d; // query position
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
