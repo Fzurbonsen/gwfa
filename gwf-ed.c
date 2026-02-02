@@ -227,7 +227,7 @@ static inline void gwf_diag_vec_print(FILE *file, int32_t n, gwf_diag_t *a) {
 	fprintf(file, "length = %i\n", n);
 }
 
-static inline void gwf_soa_print(FILE *file, int32_t n, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec) {
+static inline void gwf_soa_print(FILE *file, int32_t n, int8_t *valid_vec, int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec, uint64_t *vd_vec) {
 	int32_t length = 0;
 	fprintf(file, "printing soa (valid = 1):\n");
 	for (int32_t i = 0; i < n; ++i) {
@@ -243,7 +243,7 @@ static inline void gwf_soa_print(FILE *file, int32_t n, int8_t *valid_vec, int32
 
 static inline void gwf_compare_vd(FILE *file,
 																	int32_t n, gwf_diag_t *a,
-																	int32_t max_n_diag, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec)
+																	int32_t max_n_diag, int8_t *valid_vec, int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec, uint64_t *vd_vec)
 {
 	int32_t count = 0;
 	for (int32_t i = 0; i < max_n_diag; ++i) {
@@ -267,7 +267,7 @@ static inline void gwf_compare_vd(FILE *file,
 
 static inline void gwf_compare_k(FILE *file,
 																	int32_t n, gwf_diag_t *a,
-																	int32_t max_n_diag, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec)
+																	int32_t max_n_diag, int8_t *valid_vec, int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec, uint64_t *vd_vec)
 {
 	int32_t count = 0;
 	for (int32_t i = 0; i < max_n_diag; ++i) {
@@ -285,7 +285,7 @@ static inline void gwf_compare_k(FILE *file,
 
 static inline void gwf_compare_xo(FILE *file,
 																	int32_t n, gwf_diag_t *a,
-																	int32_t max_n_diag, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec)
+																	int32_t max_n_diag, int8_t *valid_vec, int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec, uint64_t *vd_vec)
 {
 	int32_t count = 0;
 	for (int32_t i = 0; i < max_n_diag; ++i) {
@@ -303,7 +303,7 @@ static inline void gwf_compare_xo(FILE *file,
 
 static inline void gwf_compare_t(FILE *file,
 																	int32_t n, gwf_diag_t *a,
-																	int32_t max_n_diag, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec)
+																	int32_t max_n_diag, int8_t *valid_vec, int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec, uint64_t *vd_vec)
 {
 	int32_t count = 0;
 	for (int32_t i = 0; i < max_n_diag; ++i) {
@@ -335,7 +335,7 @@ void gwf_ed_print_diag(size_t n, gwf_diag_t *a) // for debugging only
 
 // push (v,d,k) to the end of the queue
 static inline void gwf_diag_push(void *km, gwf_diag_v *a, uint32_t v, int32_t d, int32_t k, uint32_t x, uint32_t ooo, int32_t t,
-																 int32_t *diag_start_index, int8_t *diag_valid, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec,
+																 int32_t *diag_start_index, int8_t *diag_valid, int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec,
 																 gwf_graph_t *g)
 {
 	gwf_diag_t *p;
@@ -345,7 +345,7 @@ static inline void gwf_diag_push(void *km, gwf_diag_v *a, uint32_t v, int32_t d,
 
 // determine the wavefront on diagonal (v,d)
 static inline int32_t gwf_diag_update(gwf_diag_t *p, uint32_t v, int32_t d, int32_t k, uint32_t x, uint32_t ooo, int32_t t,
-																			int32_t *diag_start_index, int8_t *diag_valid, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec,
+																			int32_t *diag_start_index, int8_t *diag_valid, int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec,
 																			gwf_graph_t *g)
 {
 	uint64_t vd = gwf_gen_vd(v, d);
@@ -730,38 +730,19 @@ static inline int32_t gwf_extend1_avx2(int32_t d, int32_t k, int32_t vl, const c
 
 
 // expand batch section accelerated with SSE2 SIMD
-static inline int32_t gwf_expand_sse2(int32_t j, int32_t n, gwf_diag_t* a, gwf_diag_t* b)
+static inline int32_t gwf_expand_sse2(int32_t index, int32_t vi, int32_t n, gwf_diag_t* b,
+																			int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec, uint64_t *vd_vec)
 {
+	int32_t j = index;
 	for (; j + 7 < n - 1; j += 8) {
 			
 		// load k values
-		__m128i k0 = _mm_set_epi16((uint16_t)a[j+6].k,
-															(uint16_t)a[j+5].k,
-															(uint16_t)a[j+4].k,
-															(uint16_t)a[j+3].k,
-															(uint16_t)a[j+2].k,
-															(uint16_t)a[j+1].k,
-															(uint16_t)a[j].k,
-															(uint16_t)a[j-1].k);
+		__m128i k0 = _mm_loadu_si128((__m128i*)&k_vec[j-1]);
 
-		__m128i k1 = _mm_set_epi16((uint16_t)a[j+7].k,
-															(uint16_t)a[j+6].k,
-															(uint16_t)a[j+5].k,
-															(uint16_t)a[j+4].k,
-															(uint16_t)a[j+3].k,
-															(uint16_t)a[j+2].k,
-															(uint16_t)a[j+1].k,
-															(uint16_t)a[j].k);
+		__m128i k1 = _mm_loadu_si128((__m128i*)&k_vec[j]);
 		k1 = _mm_add_epi16(k1, _mm_set1_epi16(1)); // + 1, we move one
 
-		__m128i k2 = _mm_set_epi16((uint16_t)a[j+8].k,
-															(uint16_t)a[j+7].k,
-															(uint16_t)a[j+6].k,
-															(uint16_t)a[j+5].k,
-															(uint16_t)a[j+4].k,
-															(uint16_t)a[j+3].k,
-															(uint16_t)a[j+2].k,
-															(uint16_t)a[j+1].k);
+		__m128i k2 = _mm_loadu_si128((__m128i*)&k_vec[j+1]);
 		k2 = _mm_add_epi16(k2, _mm_set1_epi16(1)); // + 1, we move one
 
 		// compare k0 and k1
@@ -778,34 +759,13 @@ static inline int32_t gwf_expand_sse2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 		__m128i mask0 = _mm_and_si128(m, m01);
 
 		// load xo values
-		__m128i xo0 = _mm_set_epi16((uint16_t)a[j+6].xo,
-															(uint16_t)a[j+5].xo,
-															(uint16_t)a[j+4].xo,
-															(uint16_t)a[j+3].xo,
-															(uint16_t)a[j+2].xo,
-															(uint16_t)a[j+1].xo,
-															(uint16_t)a[j].xo,
-															(uint16_t)a[j-1].xo);
+		__m128i xo0 = _mm_loadu_si128((__m128i*)&xo_vec[j-1]);
 		xo0 = _mm_add_epi16(xo0, _mm_set1_epi16(2)); // + 2
 
-		__m128i xo1 = _mm_set_epi16((uint16_t)a[j+7].xo,
-															(uint16_t)a[j+6].xo,
-															(uint16_t)a[j+5].xo,
-															(uint16_t)a[j+4].xo,
-															(uint16_t)a[j+3].xo,
-															(uint16_t)a[j+2].xo,
-															(uint16_t)a[j+1].xo,
-															(uint16_t)a[j].xo);
+		__m128i xo1 = _mm_loadu_si128((__m128i*)&xo_vec[j]);
 		xo1 = _mm_add_epi16(xo1, _mm_set1_epi16(4)); // + 4
 
-		__m128i xo2 = _mm_set_epi16((uint16_t)a[j+8].xo,
-															(uint16_t)a[j+7].xo,
-															(uint16_t)a[j+6].xo,
-															(uint16_t)a[j+5].xo,
-															(uint16_t)a[j+4].xo,
-															(uint16_t)a[j+3].xo,
-															(uint16_t)a[j+2].xo,
-															(uint16_t)a[j+1].xo);
+		__m128i xo2 = _mm_loadu_si128((__m128i*)&xo_vec[j+1]);
 		xo2 = _mm_add_epi16(xo2, _mm_set1_epi16(2)); // + 2
 
 		// build xo results
@@ -817,32 +777,11 @@ static inline int32_t gwf_expand_sse2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 				_mm_and_si128(mask2, xo2));
 
 		// load t values
-		__m128i t0 = _mm_set_epi16((uint16_t)a[j+6].t,
-															(uint16_t)a[j+5].t,
-															(uint16_t)a[j+4].t,
-															(uint16_t)a[j+3].t,
-															(uint16_t)a[j+2].t,
-															(uint16_t)a[j+1].t,
-															(uint16_t)a[j].t,
-															(uint16_t)a[j-1].t);
+		__m128i t0 = _mm_loadu_si128((__m128i*)&t_vec[j-1]);
 
-		__m128i t1 = _mm_set_epi16((uint16_t)a[j+7].t,
-															(uint16_t)a[j+6].t,
-															(uint16_t)a[j+5].t,
-															(uint16_t)a[j+4].t,
-															(uint16_t)a[j+3].t,
-															(uint16_t)a[j+2].t,
-															(uint16_t)a[j+1].t,
-															(uint16_t)a[j].t);
+		__m128i t1 = _mm_loadu_si128((__m128i*)&t_vec[j]);
 
-		__m128i t2 = _mm_set_epi16((uint16_t)a[j+8].t,
-															(uint16_t)a[j+7].t,
-															(uint16_t)a[j+6].t,
-															(uint16_t)a[j+5].t,
-															(uint16_t)a[j+4].t,
-															(uint16_t)a[j+3].t,
-															(uint16_t)a[j+2].t,
-															(uint16_t)a[j+1].t);
+		__m128i t2 = _mm_loadu_si128((__m128i*)&t_vec[j+1]);
 
 		// build t results
 		__m128i t = 
@@ -859,56 +798,32 @@ static inline int32_t gwf_expand_sse2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 		_mm_storeu_si128((__m128i*)t_out, t);
 
 		for (int lane = 0; lane < 8; ++lane) {
-			b[j+1+lane].k = k_out[lane];
-			b[j+1+lane].xo = xo_out[lane];
-			b[j+1+lane].t = t_out[lane];
-			b[j+1+lane].vd = a[j+lane].vd;
+			b[vi].k = k_out[lane];
+			b[vi].xo = xo_out[lane];
+			b[vi].t = t_out[lane];
+			b[vi].vd = vd_vec[j+lane];
+			vi++;
 		}
 	}
 
-	return j;
+	return j - index;
 }
 
 
 // expand batch section accelerated with SSE2 SIMD
-static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_diag_t* b)
+static inline int32_t gwf_expand_avx2(int32_t index, int32_t vi, int32_t n, gwf_diag_t* b,
+																			int16_t *k_vec, uint16_t *xo_vec, int16_t *t_vec, uint64_t *vd_vec)
 {
+	int32_t j = index;
 	for (; j + 15 < n - 1; j += 16) {
 
 		// load k values
-		__m256i k0 = _mm256_set_epi16(
-			(uint16_t)a[j+14].k, (uint16_t)a[j+13].k,
-			(uint16_t)a[j+12].k, (uint16_t)a[j+11].k,
-			(uint16_t)a[j+10].k, (uint16_t)a[j+9].k,
-			(uint16_t)a[j+8].k,  (uint16_t)a[j+7].k,
-			(uint16_t)a[j+6].k,  (uint16_t)a[j+5].k,
-			(uint16_t)a[j+4].k,  (uint16_t)a[j+3].k,
-			(uint16_t)a[j+2].k,  (uint16_t)a[j+1].k,
-			(uint16_t)a[j].k,    (uint16_t)a[j-1].k
-		);
+		__m256i k0 = _mm256_loadu_si256((const __m256i*)&k_vec[j-1]);
 
-		__m256i k1 = _mm256_set_epi16(
-			(uint16_t)a[j+15].k, (uint16_t)a[j+14].k,
-			(uint16_t)a[j+13].k, (uint16_t)a[j+12].k,
-			(uint16_t)a[j+11].k, (uint16_t)a[j+10].k,
-			(uint16_t)a[j+9].k,  (uint16_t)a[j+8].k,
-			(uint16_t)a[j+7].k,  (uint16_t)a[j+6].k,
-			(uint16_t)a[j+5].k,  (uint16_t)a[j+4].k,
-			(uint16_t)a[j+3].k,  (uint16_t)a[j+2].k,
-			(uint16_t)a[j+1].k,  (uint16_t)a[j].k
-		);
+		__m256i k1 = _mm256_loadu_si256((const __m256i*)&k_vec[j]);
 		k1 = _mm256_add_epi16(k1, _mm256_set1_epi16(1)); // + 1, we move one
 
-		__m256i k2 = _mm256_set_epi16(
-			(uint16_t)a[j+16].k, (uint16_t)a[j+15].k,
-			(uint16_t)a[j+14].k, (uint16_t)a[j+13].k,
-			(uint16_t)a[j+12].k, (uint16_t)a[j+11].k,
-			(uint16_t)a[j+10].k,  (uint16_t)a[j+9].k,
-			(uint16_t)a[j+8].k,  (uint16_t)a[j+7].k,
-			(uint16_t)a[j+6].k,  (uint16_t)a[j+5].k,
-			(uint16_t)a[j+4].k,  (uint16_t)a[j+3].k,
-			(uint16_t)a[j+2].k,  (uint16_t)a[j+1].k
-		);
+		__m256i k2 = _mm256_loadu_si256((const __m256i*)&k_vec[j+1]);
 		k2 = _mm256_add_epi16(k2, _mm256_set1_epi16(1)); // + 1, we move one
 		
 		// compare k0 to k1
@@ -925,40 +840,13 @@ static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 		__m256i mask0 = _mm256_and_si256(m, m01);
 
 		// load xo values values
-		__m256i xo0 = _mm256_set_epi16(
-			(uint16_t)a[j+14].xo, (uint16_t)a[j+13].xo,
-			(uint16_t)a[j+12].xo, (uint16_t)a[j+11].xo,
-			(uint16_t)a[j+10].xo, (uint16_t)a[j+9].xo,
-			(uint16_t)a[j+8].xo,  (uint16_t)a[j+7].xo,
-			(uint16_t)a[j+6].xo,  (uint16_t)a[j+5].xo,
-			(uint16_t)a[j+4].xo,  (uint16_t)a[j+3].xo,
-			(uint16_t)a[j+2].xo,  (uint16_t)a[j+1].xo,
-			(uint16_t)a[j].xo,    (uint16_t)a[j-1].xo
-		);
+		__m256i xo0 = _mm256_loadu_si256((const __m256i*)&xo_vec[j-1]);
 		xo0 = _mm256_add_epi16(xo0, _mm256_set1_epi16(2)); // + 2
 
-		__m256i xo1 = _mm256_set_epi16(
-			(uint16_t)a[j+15].xo, (uint16_t)a[j+14].xo,
-			(uint16_t)a[j+13].xo, (uint16_t)a[j+12].xo,
-			(uint16_t)a[j+11].xo, (uint16_t)a[j+10].xo,
-			(uint16_t)a[j+9].xo,  (uint16_t)a[j+8].xo,
-			(uint16_t)a[j+7].xo,  (uint16_t)a[j+6].xo,
-			(uint16_t)a[j+5].xo,  (uint16_t)a[j+4].xo,
-			(uint16_t)a[j+3].xo,  (uint16_t)a[j+2].xo,
-			(uint16_t)a[j+1].xo,  (uint16_t)a[j].xo
-		);
+		__m256i xo1 = _mm256_loadu_si256((const __m256i*)&xo_vec[j]);
 		xo1 = _mm256_add_epi16(xo1, _mm256_set1_epi16(4)); // + 4
 
-		__m256i xo2 = _mm256_set_epi16(
-			(uint16_t)a[j+16].xo, (uint16_t)a[j+15].xo,
-			(uint16_t)a[j+14].xo, (uint16_t)a[j+13].xo,
-			(uint16_t)a[j+12].xo, (uint16_t)a[j+11].xo,
-			(uint16_t)a[j+10].xo,  (uint16_t)a[j+9].xo,
-			(uint16_t)a[j+8].xo,  (uint16_t)a[j+7].xo,
-			(uint16_t)a[j+6].xo,  (uint16_t)a[j+5].xo,
-			(uint16_t)a[j+4].xo,  (uint16_t)a[j+3].xo,
-			(uint16_t)a[j+2].xo,  (uint16_t)a[j+1].xo
-		);
+		__m256i xo2 = _mm256_loadu_si256((const __m256i*)&xo_vec[j+1]);
 		xo2 = _mm256_add_epi16(xo2, _mm256_set1_epi16(2)); // + 2
 
 		// build xo results
@@ -970,38 +858,11 @@ static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 				_mm256_and_si256(mask2, xo2));
 
 		// load t values
-		__m256i t0 = _mm256_set_epi16(
-			(uint16_t)a[j+14].t, (uint16_t)a[j+13].t,
-			(uint16_t)a[j+12].t, (uint16_t)a[j+11].t,
-			(uint16_t)a[j+10].t, (uint16_t)a[j+9].t,
-			(uint16_t)a[j+8].t,  (uint16_t)a[j+7].t,
-			(uint16_t)a[j+6].t,  (uint16_t)a[j+5].t,
-			(uint16_t)a[j+4].t,  (uint16_t)a[j+3].t,
-			(uint16_t)a[j+2].t,  (uint16_t)a[j+1].t,
-			(uint16_t)a[j].t,    (uint16_t)a[j-1].t
-		);
+		__m256i t0 = _mm256_loadu_si256((const __m256i*)&t_vec[j-1]);
 
-		__m256i t1 = _mm256_set_epi16(
-			(uint16_t)a[j+15].t, (uint16_t)a[j+14].t,
-			(uint16_t)a[j+13].t, (uint16_t)a[j+12].t,
-			(uint16_t)a[j+11].t, (uint16_t)a[j+10].t,
-			(uint16_t)a[j+9].t,  (uint16_t)a[j+8].t,
-			(uint16_t)a[j+7].t,  (uint16_t)a[j+6].t,
-			(uint16_t)a[j+5].t,  (uint16_t)a[j+4].t,
-			(uint16_t)a[j+3].t,  (uint16_t)a[j+2].t,
-			(uint16_t)a[j+1].t,  (uint16_t)a[j].t
-		);
+		__m256i t1 = _mm256_loadu_si256((const __m256i*)&t_vec[j]);
 
-		__m256i t2 = _mm256_set_epi16(
-			(uint16_t)a[j+16].t, (uint16_t)a[j+15].t,
-			(uint16_t)a[j+14].t, (uint16_t)a[j+13].t,
-			(uint16_t)a[j+12].t, (uint16_t)a[j+11].t,
-			(uint16_t)a[j+10].t,  (uint16_t)a[j+9].t,
-			(uint16_t)a[j+8].t,  (uint16_t)a[j+7].t,
-			(uint16_t)a[j+6].t,  (uint16_t)a[j+5].t,
-			(uint16_t)a[j+4].t,  (uint16_t)a[j+3].t,
-			(uint16_t)a[j+2].t,  (uint16_t)a[j+1].t
-		);
+		__m256i t2 = _mm256_loadu_si256((const __m256i*)&t_vec[j+1]);
 
 		// build t results
 		__m256i t = 
@@ -1018,14 +879,15 @@ static inline int32_t gwf_expand_avx2(int32_t j, int32_t n, gwf_diag_t* a, gwf_d
 		_mm256_storeu_si256((__m128i*)t_out, t);
 
 		for (int lane = 0; lane < 16; ++lane) {
-			b[j+1+lane].k = k_out[lane];
-			b[j+1+lane].xo = xo_out[lane];
-			b[j+1+lane].t = t_out[lane];
-			b[j+1+lane].vd = a[j+lane].vd;
+			b[vi].k = k_out[lane];
+			b[vi].xo = xo_out[lane];
+			b[vi].t = t_out[lane];
+			b[vi].vd = vd_vec[j+lane];
+			vi++;
 		}
 	}
 
-	return j;
+	return j - index;
 }
 
 
@@ -1133,7 +995,7 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 // This is essentially Landau-Vishkin for linear sequences. The function speeds up alignment to long vertices. Not really necessary.
 static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t n, int32_t index0, gwf_diag_v *B,
 								kdq_t(gwf_diag_t) *A, gwf_intv_v *tmp_intv, int32_t traceback, gwf_edbuf_t* buf,
-								int32_t max_n_diag, int32_t* diag_start_index, int8_t* diag_valid, int32_t* k_vec, uint32_t* xo_vec, int32_t* t_vec, uint64_t *vd_vec)
+								int32_t max_n_diag, int32_t* diag_start_index, int8_t* diag_valid, int16_t* k_vec, uint16_t* xo_vec, int16_t* t_vec, uint64_t *vd_vec)
 {
 	int32_t i, j, m;
 	int32_t v = vd_vec[index0]>>32;
@@ -1183,18 +1045,25 @@ static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, 
 	vi++;
 	index++;
 
+	if (UNLIKELY(simd_type == SSE2)) {
+		int32_t diff;
 
-	// Commented for testing
-	// if (UNLIKELY(simd_type == SSE2)) {
+		diff = gwf_expand_sse2(index, vi, index0 + n, b, k_vec, xo_vec, t_vec, vd_vec);
 
-	// 	j = gwf_expand_sse2(j, n, a, b);
+		index += diff;
+		vi += diff;
 
-	// } else if (LIKELY(simd_type == AVX2)) {
+	} else if (LIKELY(simd_type == AVX2)) {
+		int32_t diff;
 
-	// 	j = gwf_expand_avx2(j, n, a, b);
-	// 	j = gwf_expand_sse2(j, n, a, b); // try to solve remaining section with sse2 instructions
-	
-	// }
+		diff = gwf_expand_avx2(index, vi, index0 + n, b, k_vec, xo_vec, t_vec, vd_vec);
+		index += diff;
+		vi += diff;
+
+		diff = gwf_expand_sse2(index, vi, index0 + n, b, k_vec, xo_vec, t_vec, vd_vec); // try to solve remaining section with sse2 instructions
+		index += diff;
+		vi += diff;
+	}
 
 	// scalar tail
 	for (; index < index0 + n - 1; ++index, ++vi) {
@@ -1261,7 +1130,7 @@ static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, 
 // wfa_extend and wfa_next combined
 static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback,
 								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a,
-								 int32_t* diag_start_index, int8_t* diag_valid, int32_t* k_vec, uint32_t* xo_vec, int32_t* t_vec, uint64_t *vd_vec, int32_t max_n_diag) // struct of arrays
+								 int32_t* diag_start_index, int8_t* diag_valid, int16_t* k_vec, uint16_t* xo_vec, int16_t* t_vec, uint64_t *vd_vec, int32_t max_n_diag) // struct of arrays
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1;
 	kdq_t(gwf_diag_t) *A;
@@ -1609,9 +1478,9 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 
 	// structure of arrays approach
 	int8_t *diag_valid = malloc(max_n_diag * sizeof(int8_t));
-	int32_t *k_vec = malloc(max_n_diag * sizeof(int32_t));
-	uint32_t *xo_vec = malloc(max_n_diag * sizeof(uint32_t)); // higher 31 bits: anti diagonal; lower 1 bit: out-of-order or not
-	int32_t *t_vec = malloc(max_n_diag * sizeof(int32_t));
+	int16_t *k_vec = malloc(max_n_diag * sizeof(int16_t));
+	uint16_t *xo_vec = malloc(max_n_diag * sizeof(uint16_t)); // higher 31 bits: anti diagonal; lower 1 bit: out-of-order or not
+	int16_t *t_vec = malloc(max_n_diag * sizeof(int16_t));
 	uint64_t *vd_vec = malloc(max_n_diag * sizeof(uint64_t));
 
 	// init vd_vec
