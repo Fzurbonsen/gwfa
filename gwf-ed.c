@@ -1265,9 +1265,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1;
 	kdq_t(gwf_diag_t) *A;
-	kdq_t(gwf_diag_t) *C;
 	gwf_diag_v B = {0,0,0};
-	gwf_diag_v D = {0,0,0};
 	gwf_diag_t *b;
 	int32_t index = 0;
 
@@ -1278,66 +1276,26 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		if (x >= n) break;
 	if (i < 4) i = 4;
 	A = kdq_init2(gwf_diag_t, buf->km, i); // $A is a queue
-	C = kdq_init2(gwf_diag_t, buf->km, i); // $D is a queue
 	kv_resize(gwf_diag_t, buf->km, B, n * 2);
-	kv_resize(gwf_diag_t, buf->km, D, n * 2);
 
 #if 0 // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
 	A->count = n;
 	memcpy(A->a, a, n * sizeof(*a));
 #else // optimized for long vertices.
 
-	for (x = 0, i = 1; i <= n; ++i) {
-		if (i == n || a[i].vd != a[i-1].vd + 1) {
-			gwf_ed_extend_batch(buf->km, g, ql, q, i - x, &a[x], &B, A, &buf->tmp, traceback, buf);
-			x = i;
-		}
-	}
-
 	int8_t valid_flag = diag_valid[0]; // flag to keep track of whether we are in a valid region
 	for (x = 0, i = 1; i <= max_n_diag; ++i) {
 		if (valid_flag == 1) {
 			if (i == max_n_diag || vd_vec[i] != vd_vec[i-1] + 1 || diag_valid[i] != 1) {
-				gwf_ed_extend_batch_soa(buf->km, g, ql, q, i - x, x, &D, C, &buf->tmp, traceback, buf, 
+				gwf_ed_extend_batch_soa(buf->km, g, ql, q, i - x, x, &B, A, &buf->tmp, traceback, buf, 
 																max_n_diag, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
 				valid_flag = 0;
 			}
 		}
-		if ((valid_flag == 0 || valid_flag == 2 || valid_flag == 3) && i < max_n_diag) {
+		if ((valid_flag == 0 || valid_flag == 2) && i < max_n_diag) {
 			if (diag_valid[i] == 1) {
 				x = i;
 				valid_flag = 1;
-			}
-		}
-	}
-
-	// debug checks
-	if (A->count != C->count) {
-		fprintf(stderr, "queue count mismatch\n");
-		exit(1);
-	} else {
-		for (i = 0; i < A->count; ++i) {
-			if (A->a[i].vd != C->a[i].vd
-				|| A->a[i].k != C->a[i].k
-				|| A->a[i].xo != C->a[i].xo
-				|| A->a[i].t != C->a[i].t) {
-				fprintf(stderr, "queueu entry mismatch\n");
-				exit(1);
-			}
-		}
-	}
-
-	if (B.n != D.n) {
-		fprintf(stderr, "vector n mismatch\n");
-		exit(1);
-	} else {
-		for (i = 0; i < B.n; ++i) {
-			if (B.a[i].vd != D.a[i].vd
-				|| B.a[i].k != D.a[i].k
-				|| B.a[i].xo != D.a[i].xo
-				|| B.a[i].t != D.a[i].t) {
-				fprintf(stderr, "vector entry mismatch\n");
-				exit(1);
 			}
 		}
 	}
@@ -1379,11 +1337,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			gwf_diag_push(buf->km, &B, v, d+1, k, x0 + 1, ooo, t.t, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
 		} else if (i + 1 < ql) { // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
 			int32_t ov = g->aux[v]>>32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1;
-			gwf_intv_t *p;
-			kv_pushp(gwf_intv_t, buf->km, buf->tmp, &p);
 			index = vd_to_aos_index(gwf_gen_vd(v, d), g, diag_start_index);
 			diag_valid[index] = 2;
-			p->vd0 = gwf_gen_vd(v, d), p->vd1 = p->vd0 + 1;
 			if (traceback) tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
 			for (j = 0; j < nv; ++j) { // traverse $v's neighbors
 				uint32_t w = (uint32_t)g->arc[ov + j].a; // $w is next to $v
@@ -1437,14 +1392,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		}
 	}
 
-
-	if (do_dedup) *n_a_ = n = gwf_dedup(buf, n, b);
-	if (max_lag > 0) *n_a_ = n = gwf_prune(n, b, max_lag);
-
-	gwf_compare_vd(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
-	gwf_compare_k(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
-	gwf_compare_t(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
-	gwf_compare_xo(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
+	// if (max_lag > 0) *n_a_ = n = gwf_prune(n, b, max_lag);
 
 	return b;
 }
@@ -1745,5 +1693,12 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 	kfree(km, buf.intv.a); kfree(km, buf.tmp.a); kfree(km, buf.swap.a); kfree(km, buf.t.a);
 	free(diag_valid); free(k_vec); free(xo_vec); free(t_vec); free(vd_vec); // free SOA
 	path->s = path->end_v >= 0? s : -1;
+
+	fprintf(stderr, "score = %i\n", s);
+	for (int i = 0; i < path->nv; ++i) {
+		fprintf(stderr, "[%i]->", path->v[i]);
+	}
+	fprintf(stderr, "\n\n");
+
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
 }
