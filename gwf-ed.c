@@ -1694,11 +1694,5 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 	free(diag_valid); free(k_vec); free(xo_vec); free(t_vec); free(vd_vec); // free SOA
 	path->s = path->end_v >= 0? s : -1;
 
-	fprintf(stderr, "score = %i\n", s);
-	for (int i = 0; i < path->nv; ++i) {
-		fprintf(stderr, "[%i]->", path->v[i]);
-	}
-	fprintf(stderr, "\n\n");
-
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
 }
