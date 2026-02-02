@@ -1157,7 +1157,7 @@ static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, 
 		// 	k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
 		// }
 
-		xo_vec[index] += (k - k_vec[index]) << 2; // partial, need to cleanup
+		xo_vec[index] += (k - k_vec[index]) << 2;
 		k_vec[index] = k;
 	}
 
@@ -1252,7 +1252,7 @@ static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, 
 			// gwf_intv_t *q;
 			// kv_pushp(gwf_intv_t, km, *tmp_intv, &q);
 			// q->vd0 = gwf_gen_vd(v, d), q->vd1 = q->vd0 + 1;
-			diag_valid[index] = 0;
+			diag_valid[index] = 2;
 		}
 	}
 	B->n += m;
@@ -1303,10 +1303,41 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 				valid_flag = 0;
 			}
 		}
-		if ((valid_flag == 0 || valid_flag == 2) && i < max_n_diag) {
+		if ((valid_flag == 0 || valid_flag == 2 || valid_flag == 3) && i < max_n_diag) {
 			if (diag_valid[i] == 1) {
 				x = i;
 				valid_flag = 1;
+			}
+		}
+	}
+
+	// debug checks
+	if (A->count != C->count) {
+		fprintf(stderr, "queue count mismatch\n");
+		exit(1);
+	} else {
+		for (i = 0; i < A->count; ++i) {
+			if (A->a[i].vd != C->a[i].vd
+				|| A->a[i].k != C->a[i].k
+				|| A->a[i].xo != C->a[i].xo
+				|| A->a[i].t != C->a[i].t) {
+				fprintf(stderr, "queueu entry mismatch\n");
+				exit(1);
+			}
+		}
+	}
+
+	if (B.n != D.n) {
+		fprintf(stderr, "vector n mismatch\n");
+		exit(1);
+	} else {
+		for (i = 0; i < B.n; ++i) {
+			if (B.a[i].vd != D.a[i].vd
+				|| B.a[i].k != D.a[i].k
+				|| B.a[i].xo != D.a[i].xo
+				|| B.a[i].t != D.a[i].t) {
+				fprintf(stderr, "vector entry mismatch\n");
+				exit(1);
 			}
 		}
 	}
@@ -1350,6 +1381,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			int32_t ov = g->aux[v]>>32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1;
 			gwf_intv_t *p;
 			kv_pushp(gwf_intv_t, buf->km, buf->tmp, &p);
+			index = vd_to_aos_index(gwf_gen_vd(v, d), g, diag_start_index);
+			diag_valid[index] = 2;
 			p->vd0 = gwf_gen_vd(v, d), p->vd1 = p->vd0 + 1;
 			if (traceback) tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
 			for (j = 0; j < nv; ++j) { // traverse $v's neighbors
@@ -1395,7 +1428,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	// clean-up diag and sync with SOA
 	for (i = 0; i < n; ++i) {
 		index = vd_to_aos_index(b[i].vd, g, diag_start_index);
-		if (b[i].k > k_vec[index] || diag_valid[index] == 0) { // || b[i].k == -1
+		if ((b[i].k > k_vec[index] || diag_valid[index] == 0) && diag_valid[index] != 2) { // || b[i].k == -1
 			diag_valid[index] = 1; // indicate that the diagonal is in use
 			k_vec[index] = b[i].k;
 			t_vec[index] = b[i].t;
@@ -1404,27 +1437,9 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		}
 	}
 
+
 	if (do_dedup) *n_a_ = n = gwf_dedup(buf, n, b);
 	if (max_lag > 0) *n_a_ = n = gwf_prune(n, b, max_lag);
-
-	if (do_dedup) {
-		if (buf->intv.n > 0) {
-			// iterate through the intervals and invalidate the corresponding diagonals
-			for (int32_t i = 0; i < buf->intv.n; ++i) {
-				gwf_intv_t intv = buf->intv.a[i];
-				uint64_t vd0 = intv.vd0;
-				uint64_t vd1 = intv.vd1;
-				int32_t inval_0 = vd_to_aos_index(vd0, g, diag_start_index);
-				int32_t inval_1 = vd_to_aos_index(vd1, g, diag_start_index);
-				if (inval_0 < 0) inval_0 = 0;
-				if (inval_1 > max_n_diag) inval_1 = max_n_diag;
-				// fprintf(stderr, "inval_0 = %i\t inval_1 = %i\n", inval_0, inval_1);
-				for (; inval_0 < inval_1; ++inval_0) {
-					diag_valid[inval_0] = 0;
-				}
-			}
-		}
-	}
 
 	gwf_compare_vd(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
 	gwf_compare_k(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
