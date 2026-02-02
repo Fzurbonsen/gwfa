@@ -95,6 +95,18 @@ static inline uint64_t gwf_gen_vd(uint32_t v, int32_t d)
 	return (uint64_t)v<<32 | (GWF_DIAG_SHIFT + d);
 }
 
+static inline int32_t vd_to_aos_index(uint64_t vd, gwf_graph_t *g, int32_t *diag_start_index) {
+	uint32_t v = (uint32_t)(vd>>32);
+	int32_t d = (int32_t)(vd & 0xffffffffu) - GWF_DIAG_SHIFT;
+	int32_t diag_start = diag_start_index[v];
+	return diag_start + g->len[v] + d;
+}
+
+static inline int32_t v_d_to_aos_index(int32_t v, int32_t d, gwf_graph_t *g, int32_t *diag_start_index) {
+	int32_t diag_start = diag_start_index[v];
+	return diag_start + g->len[v] + d;
+}
+
 /*
  * Diagonal interval
  */
@@ -165,6 +177,148 @@ typedef struct { // a diagonal
 
 typedef kvec_t(gwf_diag_t) gwf_diag_v;
 
+
+/***************
+ * Debug Utils *
+ ***************/
+
+static inline void gwf_print_vd_as_v_d(FILE *file, uint64_t vd) {
+	uint32_t v = (uint32_t)(vd>>32);
+	int32_t d = (int32_t)(vd & 0xffffffffu) - GWF_DIAG_SHIFT;
+	fprintf(stderr, "v = %u\td = %i\n", v, d);
+}
+
+static inline void gwf_vd_interval_print(FILE *file, uint64_t vd0, uint64_t vd1) {
+	fprintf(stderr, "[%lu, %lu):\n", vd0, vd1);
+	for (; vd0 < vd1; ++vd0) {
+		gwf_print_vd_as_v_d(file, vd0);
+	}
+	fprintf(stderr, "-> ");
+	gwf_print_vd_as_v_d(file, vd1);
+}
+
+static inline void gwf_diag_vec_print_vd(FILE *file, int32_t n, gwf_diag_t *a) {
+	fprintf(file, "printing diag vector:\n");
+	for (int32_t i = 0; i < n; ++i) {
+		fprintf(file, "%lu\n", a[i].vd);
+	}
+	fprintf(file, "length = %i\n", n);
+}
+
+static inline void gwf_vd_vec_print(FILE *file, int32_t n, uint64_t *vd_vec, int8_t *valid_vec) {
+	int32_t length = 0;
+	fprintf(file, "printing vd_vec (valid = 1):\n");
+	for (int32_t i = 0; i < n; ++i) {
+		if (valid_vec[i] == 1) {
+			fprintf(file, "%lu\n", vd_vec[i]);
+			length++;
+		}
+	}
+	fprintf(file, "length = %i\n", length);
+}
+
+static inline void gwf_diag_vec_print(FILE *file, int32_t n, gwf_diag_t *a) {
+	fprintf(file, "printing diag vector:\n");
+	for (int32_t i = 0; i < n; ++i) {
+		uint32_t v = (uint32_t)(a[i].vd>>32);
+		int32_t d = (int32_t)(a[i].vd & 0xffffffffu) - GWF_DIAG_SHIFT;
+		fprintf(stderr, "v = %u\td = %i\tk = %i\txo = %i\tt = %i\n", v, d, a[i].k, a[i].xo, a[i].t);
+	}
+	fprintf(file, "length = %i\n", n);
+}
+
+static inline void gwf_soa_print(FILE *file, int32_t n, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec) {
+	int32_t length = 0;
+	fprintf(file, "printing soa (valid = 1):\n");
+	for (int32_t i = 0; i < n; ++i) {
+		if (valid_vec[i] == 1) {
+			uint32_t v = (uint32_t)(vd_vec[i]>>32);
+			int32_t d = (int32_t)(vd_vec[i] & 0xffffffffu) - GWF_DIAG_SHIFT;
+			fprintf(stderr, "v = %u\td = %i\tk = %i\txo = %i\tt = %i\n", v, d, k_vec[i], xo_vec[i], t_vec[i]);
+			length++;
+		}
+	}
+	fprintf(file, "length = %i\n", length);
+}
+
+static inline void gwf_compare_vd(FILE *file,
+																	int32_t n, gwf_diag_t *a,
+																	int32_t max_n_diag, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec)
+{
+	int32_t count = 0;
+	for (int32_t i = 0; i < max_n_diag; ++i) {
+		if (valid_vec[i] == 1) {
+			if (a[count].vd != vd_vec[i]) {
+				fprintf(file, "found a mismatch:\n");
+				gwf_diag_vec_print(file, n, a);
+				gwf_soa_print(file, max_n_diag, valid_vec, k_vec, xo_vec, t_vec, vd_vec);
+				exit(1);
+			}
+			count++;
+		}
+	}
+	if (count != n) {
+		fprintf(stderr, "count mismatch!\n");
+		gwf_diag_vec_print(file, n, a);
+		gwf_soa_print(file, max_n_diag, valid_vec, k_vec, xo_vec, t_vec, vd_vec);
+		exit(1);
+	}
+}
+
+static inline void gwf_compare_k(FILE *file,
+																	int32_t n, gwf_diag_t *a,
+																	int32_t max_n_diag, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec)
+{
+	int32_t count = 0;
+	for (int32_t i = 0; i < max_n_diag; ++i) {
+		if (valid_vec[i] == 1) {
+			if (a[count].k != k_vec[i]) {
+				fprintf(file, "found a mismatch:\n");
+				gwf_diag_vec_print(file, n, a);
+				gwf_soa_print(file, max_n_diag, valid_vec, k_vec, xo_vec, t_vec, vd_vec);
+				exit(1);
+			}
+			count++;
+		}
+	}
+}
+
+static inline void gwf_compare_xo(FILE *file,
+																	int32_t n, gwf_diag_t *a,
+																	int32_t max_n_diag, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec)
+{
+	int32_t count = 0;
+	for (int32_t i = 0; i < max_n_diag; ++i) {
+		if (valid_vec[i] == 1) {
+			if (a[count].xo != xo_vec[i]) {
+				fprintf(file, "found a mismatch:\n");
+				gwf_diag_vec_print(file, n, a);
+				gwf_soa_print(file, max_n_diag, valid_vec, k_vec, xo_vec, t_vec, vd_vec);
+				exit(1);
+			}
+			count++;
+		}
+	}
+}
+
+static inline void gwf_compare_t(FILE *file,
+																	int32_t n, gwf_diag_t *a,
+																	int32_t max_n_diag, int8_t *valid_vec, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec, uint64_t *vd_vec)
+{
+	int32_t count = 0;
+	for (int32_t i = 0; i < max_n_diag; ++i) {
+		if (valid_vec[i] == 1) {
+			if (a[count].t != t_vec[i]) {
+				fprintf(file, "found a mismatch:\n");
+				gwf_diag_vec_print(file, n, a);
+				gwf_soa_print(file, max_n_diag, valid_vec, k_vec, xo_vec, t_vec, vd_vec);
+				exit(1);
+			}
+			count++;
+		}
+	}
+}
+
 #define ed_key(x) ((x).vd)
 KRADIX_SORT_INIT(gwf_ed, gwf_diag_t, ed_key, 8)
 
@@ -180,7 +334,9 @@ void gwf_ed_print_diag(size_t n, gwf_diag_t *a) // for debugging only
 }
 
 // push (v,d,k) to the end of the queue
-static inline void gwf_diag_push(void *km, gwf_diag_v *a, uint32_t v, int32_t d, int32_t k, uint32_t x, uint32_t ooo, int32_t t)
+static inline void gwf_diag_push(void *km, gwf_diag_v *a, uint32_t v, int32_t d, int32_t k, uint32_t x, uint32_t ooo, int32_t t,
+																 int32_t *diag_start_index, int8_t *diag_valid, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec,
+																 gwf_graph_t *g)
 {
 	gwf_diag_t *p;
 	kv_pushp(gwf_diag_t, km, *a, &p);
@@ -188,7 +344,9 @@ static inline void gwf_diag_push(void *km, gwf_diag_v *a, uint32_t v, int32_t d,
 }
 
 // determine the wavefront on diagonal (v,d)
-static inline int32_t gwf_diag_update(gwf_diag_t *p, uint32_t v, int32_t d, int32_t k, uint32_t x, uint32_t ooo, int32_t t)
+static inline int32_t gwf_diag_update(gwf_diag_t *p, uint32_t v, int32_t d, int32_t k, uint32_t x, uint32_t ooo, int32_t t,
+																			int32_t *diag_start_index, int8_t *diag_valid, int32_t *k_vec, uint32_t *xo_vec, int32_t *t_vec,
+																			gwf_graph_t *g)
 {
 	uint64_t vd = gwf_gen_vd(v, d);
 	if (p->vd == vd) {
@@ -914,16 +1072,17 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	// set loop base
 	j = 1;
 
-	if (UNLIKELY(simd_type == SSE2)) {
+	// Commented for testing
+	// if (UNLIKELY(simd_type == SSE2)) {
 
-		j = gwf_expand_sse2(j, n, a, b);
+	// 	j = gwf_expand_sse2(j, n, a, b);
 
-	} else if (LIKELY(simd_type == AVX2)) {
+	// } else if (LIKELY(simd_type == AVX2)) {
 
-		j = gwf_expand_avx2(j, n, a, b);
-		j = gwf_expand_sse2(j, n, a, b); // try to solve remaining section with sse2 instructions
+	// 	j = gwf_expand_avx2(j, n, a, b);
+	// 	j = gwf_expand_sse2(j, n, a, b); // try to solve remaining section with sse2 instructions
 	
-	}
+	// }
 
 	// scalar tail
 	for (; j < n - 1; ++j) {
@@ -970,14 +1129,147 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	B->n += m;
 }
 
+
+// This is essentially Landau-Vishkin for linear sequences. The function speeds up alignment to long vertices. Not really necessary.
+static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t n, int32_t index0, gwf_diag_v *B,
+								kdq_t(gwf_diag_t) *A, gwf_intv_v *tmp_intv, int32_t traceback, gwf_edbuf_t* buf,
+								int32_t max_n_diag, int32_t* diag_start_index, int8_t* diag_valid, int32_t* k_vec, uint32_t* xo_vec, int32_t* t_vec, uint64_t *vd_vec)
+{
+	int32_t i, j, m;
+	int32_t v = vd_vec[index0]>>32;
+	int32_t vl = g->len[v];
+	const char *ts = g->seq[v];
+	gwf_diag_t *b;
+	int32_t base_index = diag_start_index[v];
+	int32_t max_index = v < g->n_vtx-1 ? diag_start_index[v+1] : max_n_diag; // allowed range is [base_index, max_index)
+	int32_t vi = 0; // vector index
+	int32_t index = index0;
+
+	// wfa_extend
+	for (j = 0; j < n; ++j, ++index) {
+		int32_t k;
+		k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		// if (UNLIKELY(simd_type == SSE2)) {
+		// 	k = gwf_extend1_sse2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		// } else if (LIKELY(simd_type == AVX2)) {
+		// 	k = gwf_extend1_avx2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		// } else {
+		// 	k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		// }
+
+		xo_vec[index] += (k - k_vec[index]) << 2; // partial, need to cleanup
+		k_vec[index] = k;
+	}
+
+	// wfa_next
+	kv_resize(gwf_diag_t, km, *B, B->n + n + 2);
+	b = &B->a[B->n];
+
+	
+	index = index0;
+
+	// update SOA
+	b[vi].vd = vd_vec[index] - 1;
+	b[vi].xo = xo_vec[index] + 2;
+	b[vi].k = k_vec[index] + 1;
+	b[vi].t = t_vec[index];
+	vi++;
+
+	b[vi].vd = vd_vec[index];
+	b[vi].xo =  n == 1 || k_vec[index] > k_vec[index+1] ? xo_vec[index] + 4 : xo_vec[index+1] + 2;
+	b[vi].t  =  n == 1 || k_vec[index] > k_vec[index+1] ? t_vec[index] : t_vec[index+1];
+	b[vi].k  = (n == 1 || k_vec[index] > k_vec[index+1] ? k_vec[index] : k_vec[index+1]) + 1;
+
+	vi++;
+	index++;
+
+
+	// Commented for testing
+	// if (UNLIKELY(simd_type == SSE2)) {
+
+	// 	j = gwf_expand_sse2(j, n, a, b);
+
+	// } else if (LIKELY(simd_type == AVX2)) {
+
+	// 	j = gwf_expand_avx2(j, n, a, b);
+	// 	j = gwf_expand_sse2(j, n, a, b); // try to solve remaining section with sse2 instructions
+	
+	// }
+
+	// scalar tail
+	for (; index < index0 + n - 1; ++index, ++vi) {
+		uint32_t x = xo_vec[index-1] + 2;
+		int32_t k = k_vec[index-1], t = t_vec[index-1];
+		int8_t tb = 0;
+		x = k > k_vec[index] + 1 ? x : xo_vec[index] + 4;
+		t = k > k_vec[index] + 1 ? t : t_vec[index];
+		k = k > k_vec[index] + 1 ? k : k_vec[index] + 1;
+
+		x = k > k_vec[index+1] + 1 ? x : xo_vec[index+1] + 2;
+		t = k > k_vec[index+1] + 1 ? t : t_vec[index+1];
+		k = k > k_vec[index+1] + 1 ? k : k_vec[index+1] + 1;
+		b[vi].vd = vd_vec[index];
+		b[vi].k = k;
+		b[vi].xo = x;
+		b[vi].t = t;
+	}
+	if (n >= 2) {
+		b[vi].vd = vd_vec[index];
+		b[vi].xo = k_vec[index-1] > k_vec[index] + 1 ? xo_vec[index-1] + 2 : xo_vec[index] + 4;
+		b[vi].t  = k_vec[index-1] > k_vec[index] + 1 ? t_vec[index-1] : t_vec[index];
+		b[vi].k  = k_vec[index-1] > k_vec[index] + 1 ? k_vec[index-1] : k_vec[index] + 1;
+		vi++;
+	} else {
+		index--;
+	}
+	b[vi].vd = vd_vec[index] + 1;
+	b[vi].xo = xo_vec[index] + 2;
+	b[vi].t = t_vec[index];
+	b[vi].k = k_vec[index];
+	vi++;
+
+	// drop out-of-bound cells
+	for (j = 0; j < n; ++j) {
+    int32_t idx = index0 + j;
+    int32_t d = (int32_t)vd_vec[idx] - GWF_DIAG_SHIFT;
+    int32_t k = k_vec[idx];
+
+    if (k == vl - 1 || d + k == ql - 1) {
+			gwf_diag_t *p = kdq_pushp(gwf_diag_t, A);
+			p->vd = vd_vec[idx];
+			p->k  = k;
+			p->xo = xo_vec[idx] | 1;
+			p->t  = t_vec[idx];
+    }
+	}
+	for (j = 0, m = 0; j < vi; ++j) {
+		gwf_diag_t *p = &b[j];
+		int32_t d = (int32_t)p->vd - GWF_DIAG_SHIFT;
+		index = vd_to_aos_index(p->vd, g, diag_start_index);
+		if (d + p->k < ql && p->k < vl) {
+			b[m++] = *p;
+		} else if (p->k == vl && index < max_index && index > base_index) {
+			// gwf_intv_t *q;
+			// kv_pushp(gwf_intv_t, km, *tmp_intv, &q);
+			// q->vd0 = gwf_gen_vd(v, d), q->vd1 = q->vd0 + 1;
+			diag_valid[index] = 0;
+		}
+	}
+	B->n += m;
+}
+
 // wfa_extend and wfa_next combined
 static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v1, uint32_t max_lag, int32_t traceback,
-								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a)
+								 int32_t *end_v, int32_t *end_off, int32_t *end_tb, int32_t *n_a_, gwf_diag_t *a,
+								 int32_t* diag_start_index, int8_t* diag_valid, int32_t* k_vec, uint32_t* xo_vec, int32_t* t_vec, uint64_t *vd_vec, int32_t max_n_diag) // struct of arrays
 {
 	int32_t i, x, n = *n_a_, do_dedup = 1;
 	kdq_t(gwf_diag_t) *A;
+	kdq_t(gwf_diag_t) *C;
 	gwf_diag_v B = {0,0,0};
+	gwf_diag_v D = {0,0,0};
 	gwf_diag_t *b;
+	int32_t index = 0;
 
 	*end_v = *end_off = *end_tb = -1;
 	buf->tmp.n = 0;
@@ -986,18 +1278,41 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		if (x >= n) break;
 	if (i < 4) i = 4;
 	A = kdq_init2(gwf_diag_t, buf->km, i); // $A is a queue
+	C = kdq_init2(gwf_diag_t, buf->km, i); // $D is a queue
 	kv_resize(gwf_diag_t, buf->km, B, n * 2);
+	kv_resize(gwf_diag_t, buf->km, D, n * 2);
+
 #if 0 // unoptimized version without calling gwf_ed_extend_batch() at all. The final result will be the same.
 	A->count = n;
 	memcpy(A->a, a, n * sizeof(*a));
 #else // optimized for long vertices.
+
 	for (x = 0, i = 1; i <= n; ++i) {
 		if (i == n || a[i].vd != a[i-1].vd + 1) {
 			gwf_ed_extend_batch(buf->km, g, ql, q, i - x, &a[x], &B, A, &buf->tmp, traceback, buf);
 			x = i;
 		}
 	}
+
+	int8_t valid_flag = diag_valid[0]; // flag to keep track of whether we are in a valid region
+	for (x = 0, i = 1; i <= max_n_diag; ++i) {
+		if (valid_flag == 1) {
+			if (i == max_n_diag || vd_vec[i] != vd_vec[i-1] + 1 || diag_valid[i] != 1) {
+				gwf_ed_extend_batch_soa(buf->km, g, ql, q, i - x, x, &D, C, &buf->tmp, traceback, buf, 
+																max_n_diag, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
+				valid_flag = 0;
+			}
+		}
+		if ((valid_flag == 0 || valid_flag == 2) && i < max_n_diag) {
+			if (diag_valid[i] == 1) {
+				x = i;
+				valid_flag = 1;
+			}
+		}
+	}
+
 	if (kdq_size(A) == 0) do_dedup = 0;
+
 #endif
 	kfree(buf->km, a); // $a is not used as it has been copied to $A
 
@@ -1026,11 +1341,11 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 		if (k + 1 < vl && i + 1 < ql) { // the most common case: the wavefront is in the middle
 			int32_t push1 = 1, push2 = 1;
-			if (B.n >= 2) push1 = gwf_diag_update(&B.a[B.n - 2], v, d-1, k+1, x0 + 1, ooo, t.t);
-			if (B.n >= 1) push2 = gwf_diag_update(&B.a[B.n - 1], v, d,   k+1, x0 + 2, ooo, t.t);
-			if (push1) gwf_diag_push(buf->km, &B, v, d-1, k+1, x0 + 1, 1, t.t);
-			if (push2 || push1) gwf_diag_push(buf->km, &B, v, d,   k+1, x0 + 2, 1, t.t);
-			gwf_diag_push(buf->km, &B, v, d+1, k, x0 + 1, ooo, t.t);
+			if (B.n >= 2) push1 = gwf_diag_update(&B.a[B.n - 2], v, d-1, k+1, x0 + 1, ooo, t.t, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
+			if (B.n >= 1) push2 = gwf_diag_update(&B.a[B.n - 1], v, d,   k+1, x0 + 2, ooo, t.t, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
+			if (push1) gwf_diag_push(buf->km, &B, v, d-1, k+1, x0 + 1, 1, t.t, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
+			if (push2 || push1) gwf_diag_push(buf->km, &B, v, d,   k+1, x0 + 2, 1, t.t, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
+			gwf_diag_push(buf->km, &B, v, d+1, k, x0 + 1, ooo, t.t, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
 		} else if (i + 1 < ql) { // k + 1 == g->len[v]; reaching the end of the vertex but not the end of query
 			int32_t ov = g->aux[v]>>32, nv = (int32_t)g->aux[v], j, n_ext = 0, tw = -1;
 			gwf_intv_t *p;
@@ -1050,26 +1365,26 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 						p->vd = gwf_gen_vd(w, i+1-ol), p->k = ol, p->xo = (x0+2)<<1 | 1, p->t = tw;
 					}
 				} else if (absent) {
-					gwf_diag_push(buf->km, &B, w, i-ol,   ol, x0 + 1, 1, tw);
-					gwf_diag_push(buf->km, &B, w, i+1-ol, ol, x0 + 2, 1, tw);
+					gwf_diag_push(buf->km, &B, w, i-ol,   ol, x0 + 1, 1, tw, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
+					gwf_diag_push(buf->km, &B, w, i+1-ol, ol, x0 + 2, 1, tw, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
 				}
 			}
 			if (nv == 0 || n_ext != nv) // add an insertion to the target; this *might* cause a duplicate in corner cases
-				gwf_diag_push(buf->km, &B, v, d+1, k, x0 + 1, 1, t.t);
-		} else if (v1 < 0 || (v == v1 && k + 1 == vl)) { // i + 1 == ql
+				gwf_diag_push(buf->km, &B, v, d+1, k, x0 + 1, 1, t.t, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g);
+			} else if (v1 < 0 || (v == v1 && k + 1 == vl)) { // i + 1 == ql
 			*end_v = v, *end_off = k, *end_tb = t.t, *n_a_ = 0;
 			kdq_destroy(gwf_diag_t, A);
 			kfree(buf->km, B.a);
 			return 0;
 		} else if (k + 1 < vl) { // i + 1 == ql; reaching the end of the query but not the end of the vertex
-			gwf_diag_push(buf->km, &B, v, d-1, k+1, x0 + 1, ooo, t.t); // add an deletion; this *might* case a duplicate in corner cases
+			gwf_diag_push(buf->km, &B, v, d-1, k+1, x0 + 1, ooo, t.t, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g); // add an deletion; this *might* case a duplicate in corner cases
 		} else if (v != v1) { // i + 1 == ql && k + 1 == g->len[v]; not reaching the last vertex $v1
 			int32_t ov = g->aux[v]>>32, nv = (int32_t)g->aux[v], j, tw = -1;
 			if (traceback) tw = gwf_trace_push(buf->km, &buf->t, v, t.t, buf->ht);
 			for (j = 0; j < nv; ++j) {
 				uint32_t w = (uint32_t)g->arc[ov + j].a;
 				int32_t ol = g->arc[ov + j].o;
-				gwf_diag_push(buf->km, &b, w, i-ol, ol, x0 + 1, 1, tw); // deleting the first base on the next vertex
+				gwf_diag_push(buf->km, &b, w, i-ol, ol, x0 + 1, 1, tw, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g); // deleting the first base on the next vertex
 			}
 		} else assert(0); // should never come here
 	}
@@ -1077,8 +1392,45 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	kdq_destroy(gwf_diag_t, A);
 	*n_a_ = n = B.n, b = B.a;
 
+	// clean-up diag and sync with SOA
+	for (i = 0; i < n; ++i) {
+		index = vd_to_aos_index(b[i].vd, g, diag_start_index);
+		if (b[i].k > k_vec[index] || diag_valid[index] == 0) { // || b[i].k == -1
+			diag_valid[index] = 1; // indicate that the diagonal is in use
+			k_vec[index] = b[i].k;
+			t_vec[index] = b[i].t;
+			xo_vec[index] = b[i].xo & ~1u; // as the vector is always in order ooo = 0 for all entries
+			vd_vec[index] = b[i].vd;
+		}
+	}
+
 	if (do_dedup) *n_a_ = n = gwf_dedup(buf, n, b);
 	if (max_lag > 0) *n_a_ = n = gwf_prune(n, b, max_lag);
+
+	if (do_dedup) {
+		if (buf->intv.n > 0) {
+			// iterate through the intervals and invalidate the corresponding diagonals
+			for (int32_t i = 0; i < buf->intv.n; ++i) {
+				gwf_intv_t intv = buf->intv.a[i];
+				uint64_t vd0 = intv.vd0;
+				uint64_t vd1 = intv.vd1;
+				int32_t inval_0 = vd_to_aos_index(vd0, g, diag_start_index);
+				int32_t inval_1 = vd_to_aos_index(vd1, g, diag_start_index);
+				if (inval_0 < 0) inval_0 = 0;
+				if (inval_1 > max_n_diag) inval_1 = max_n_diag;
+				// fprintf(stderr, "inval_0 = %i\t inval_1 = %i\n", inval_0, inval_1);
+				for (; inval_0 < inval_1; ++inval_0) {
+					diag_valid[inval_0] = 0;
+				}
+			}
+		}
+	}
+
+	gwf_compare_vd(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
+	gwf_compare_k(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
+	gwf_compare_t(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
+	gwf_compare_xo(stderr, n, b, max_n_diag, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
+
 	return b;
 }
 
@@ -1115,7 +1467,7 @@ int32_t gwf_ed(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_
 	if (traceback) a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
 	if (traceback == 2) gwf_init_trace_mat(&buf, g, ql);
 	while (n_a > 0) {
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, NULL, NULL, NULL, NULL, NULL, NULL, 0);
 		if (path->end_off >= 0 || n_a == 0) break;
 		++s;
 #ifdef GWF_DEBUG
@@ -1200,7 +1552,7 @@ int32_t gwf_ed_infix(void *km, const gwf_graph_t *g, int32_t ql, const char *q, 
 
 
 	while (n_a > 0) {
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, NULL, NULL, NULL, NULL, NULL, NULL, 0);
 		if (path->end_off >= 0 || n_a == 0) break;
 		++s;
 #ifdef GWF_DEBUG
@@ -1249,7 +1601,7 @@ int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, i
 	if (traceback) a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
 	if (traceback == 2) gwf_init_trace_mat(&buf, g, ql);
 	while (n_a > 0) {
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, NULL, NULL, NULL, NULL, NULL, NULL, 0);
 		if (path->end_off >= 0 || n_a == 0) break;
 		++s;
 #ifdef GWF_DEBUG
@@ -1282,6 +1634,35 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 	int32_t s = 0, n_a = 0, end_tb;
 	gwf_diag_t *a;
 	gwf_edbuf_t buf;
+	int32_t index = 0;
+
+	// calculate maximum diagonal count
+	int32_t max_n_diag = 0;
+	int32_t diag_start_index[g->n_vtx];
+	for (int i = 0; i < g->n_vtx; ++i) {
+		diag_start_index[i] = max_n_diag;
+		max_n_diag += g->len[i] + ql + 1;
+	}
+
+	// structure of arrays approach
+	int8_t *diag_valid = malloc(max_n_diag * sizeof(int8_t));
+	int32_t *k_vec = malloc(max_n_diag * sizeof(int32_t));
+	uint32_t *xo_vec = malloc(max_n_diag * sizeof(uint32_t)); // higher 31 bits: anti diagonal; lower 1 bit: out-of-order or not
+	int32_t *t_vec = malloc(max_n_diag * sizeof(int32_t));
+	uint64_t *vd_vec = malloc(max_n_diag * sizeof(uint64_t));
+
+	// init vd_vec
+	for (int i = 0, idx = 0; i < g->n_vtx; ++i) {
+		for (int j = -g->len[i]; j <= ql; ++j) {
+			vd_vec[idx++] = gwf_gen_vd(i, j);
+		}
+	}
+
+
+	for (int i = 0 ; i < max_n_diag; ++i) {
+		diag_valid[i] = 0;
+		k_vec[i] = -1;
+	}
 
 	memset(&buf, 0, sizeof(buf));
 	buf.km = km;
@@ -1300,6 +1681,14 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 			diag.vd = gwf_gen_vd(i, -j-1);
 			diag.k = j;
 			diag.xo = j & ~1;
+
+			// update struct of arrays
+			index = vd_to_aos_index(diag.vd, g, diag_start_index);
+			diag_valid[index] = 1;
+			k_vec[index] = j;
+			xo_vec[index] = j & ~1;
+			t_vec[index] = 0; // unsure
+
 			if (traceback) {
 				diag.t = base_trace;
 			}
@@ -1310,6 +1699,14 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 		diag.vd = gwf_gen_vd(i, 0);
 		diag.k = -1;
 		diag.xo = -1 & ~1;
+
+		// add 0 diag to struct of arrays
+		index = vd_to_aos_index(diag.vd, g, diag_start_index);
+		diag_valid[index] = 1;
+		k_vec[index] = -1;
+		xo_vec[index] = -1 & ~1;
+		t_vec[index] = 0; // unsure
+
 		if (traceback) {
 			diag.t = base_trace;
 		}
@@ -1317,29 +1714,10 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 		n_a++;
 	}
 
-	if (traceback == 2) gwf_init_trace_mat(&buf, g, ql);
-
 	a = vec.a;
 
-
-
-	// int32_t s = 0, n_a = 1, end_tb;
-	// gwf_diag_t *a;
-	// gwf_edbuf_t buf;
-
-	// memset(&buf, 0, sizeof(buf));
-	// buf.km = km;
-	// buf.ha = gwf_set64_init2(km);
-	// buf.ht = gwf_map64_init2(km);
-	// kv_resize(gwf_trace_t, km, buf.t, g->n_vtx + 16);
-	// KCALLOC(km, a, 1);
-
-	// a[0].vd = gwf_gen_vd(v0, 0), a[0].k = -1, a[0].xo = 0; // the initial state
-	// if (traceback) a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
-
-
 	while (n_a > 0) {
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, vd_vec, max_n_diag);
 		if (path->end_off >= 0 || n_a == 0) break;
 		++s;
 #ifdef GWF_DEBUG
@@ -1347,17 +1725,10 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 #endif
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
-	// if (traceback == 2) {
-	// 	FILE* outputFile = fopen("./test_file.txt", "w");
-	// 	gwf_print_trace_mat(outputFile, &buf, g, ql, q);
-	// 	fclose(outputFile);
-	// }
-	// fprintf(stderr, "end_v: %i\tend_off: %i\n", path->end_v, path->end_off);
-	if (traceback == 2) gwf_walk_trace_mat(&buf, path, g, ql);
-	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
 	gwf_set64_destroy(buf.ha);
 	gwf_map64_destroy(buf.ht);
 	kfree(km, buf.intv.a); kfree(km, buf.tmp.a); kfree(km, buf.swap.a); kfree(km, buf.t.a);
+	free(diag_valid); free(k_vec); free(xo_vec); free(t_vec); free(vd_vec); // free SOA
 	path->s = path->end_v >= 0? s : -1;
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
 }
