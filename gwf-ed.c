@@ -328,6 +328,16 @@ static inline void gwf_compare_t(FILE *file,
 	}
 }
 
+static inline void gwf_compare_index(FILE *file, int32_t index1, int32_t index2, int32_t indicator) 
+{
+	if (index1 != index2) {
+		fprintf(file, "index mismatch!\n");
+		fprintf(file, "index1: %i\tindex2: %i\n", index1, index2);
+		fprintf(file, "indicator: %i\n", indicator);
+		exit(1);
+	}
+}
+
 #define ed_key(x) ((x).vd)
 KRADIX_SORT_INIT(gwf_ed, gwf_diag_t, ed_key, 8)
 
@@ -1122,10 +1132,14 @@ static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, 
 			p->t  = t_vec[idx];
     }
 	}
-	for (j = 0, m = 0; j < vi; ++j) {
+
+	index = index0 - 1;
+
+	for (j = 0, m = 0; j < vi; ++j, ++index) {
 		gwf_diag_t *p = &b[j];
 		int32_t d = (int32_t)p->vd - GWF_DIAG_SHIFT;
-		index = vd_to_aos_index(p->vd, g, diag_start_index);
+		// index = vd_to_aos_index(p->vd, g, diag_start_index);
+		// gwf_compare_index(stderr, index, index_, 1);
 		if (d + p->k < ql && p->k < vl) {
 			b[m++] = *p;
 		} else if (p->k == vl && index < max_index && index > base_index) {
@@ -1526,7 +1540,7 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 			diag.xo = j & ~1;
 
 			// update struct of arrays
-			index = vd_to_aos_index(diag.vd, g, diag_start_index);
+			index = v_d_to_aos_index(i, -j-1, g, diag_start_index);
 			diag_valid[index] = 1;
 			k_vec[index] = j;
 			xo_vec[index] = j & ~1;
@@ -1544,7 +1558,7 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 		diag.xo = -1 & ~1;
 
 		// add 0 diag to struct of arrays
-		index = vd_to_aos_index(diag.vd, g, diag_start_index);
+		index = v_d_to_aos_index(i, 0, g, diag_start_index);
 		diag_valid[index] = 1;
 		k_vec[index] = -1;
 		xo_vec[index] = -1 & ~1;
