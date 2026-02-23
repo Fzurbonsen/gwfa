@@ -658,6 +658,7 @@ static int32_t gwf_prune(int32_t n_a, gwf_diag_t *a, uint32_t max_lag)
 static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *ts, int32_t ql, const char *qs)
 {
 	int32_t max_k = (ql - d < vl? ql - d : vl) - 1;
+	int32_t max_k_inc = max_k - 7;
 	const char *ts_ = ts + 1, *qs_ = qs + d + 1;
 #if 0
 	// int32_t i = k + d; while (k + 1 < g->len[v] && i + 1 < ql && g->seq[v][k+1] == q[i+1]) ++k, ++i;
@@ -665,7 +666,7 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 		++k;
 #else
 	uint64_t cmp = 0;
-	while (k + 7 < max_k) {
+	while (k < max_k_inc) {
 		uint64_t x = *(uint64_t*)(ts_ + k); // warning: unaligned memory access
 		uint64_t y = *(uint64_t*)(qs_ + k);
 		cmp = x ^ y;
