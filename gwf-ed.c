@@ -20,6 +20,15 @@
 #endif
 
 
+/********************
+ * Helper Functions *
+ ********************/
+
+static INLINE int32_t min(int32_t a, int32_t b) {
+	return a < b ? a : b;
+}
+
+
 /********
  * SIMD *
  ********/
@@ -977,10 +986,12 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 		if (p->k == vl - 1 || (int32_t)p->vd - GWF_DIAG_SHIFT + p->k == ql - 1)
 			p->xo |= 1, *kdq_pushp(gwf_diag_t, A) = *p;
 	}
+
 	for (j = 0, m = 0; j < n + 2; ++j) {
 		gwf_diag_t *p = &b[j];
 		int32_t d = (int32_t)p->vd - GWF_DIAG_SHIFT;
-		if (d + p->k < ql && p->k < vl) {
+		int32_t k_limit = min(vl, ql - d);
+		if (p->k < k_limit) {
 			b[m++] = *p;
 		} else if (p->k == vl) {
 			gwf_intv_t *q;
@@ -1010,14 +1021,14 @@ static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, 
 	// wfa_extend
 	for (j = 0; j < n; ++j, ++index) {
 		int32_t k;
-		// k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
-		if (UNLIKELY(simd_type == SSE2)) {
-			k = gwf_extend1_sse2((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
-		} else if (LIKELY(simd_type == AVX2)) {
-			k = gwf_extend1_avx2((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
-		} else {
-			k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
-		}
+		k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		// if (UNLIKELY(simd_type == SSE2)) {
+		// 	k = gwf_extend1_sse2((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		// } else if (LIKELY(simd_type == AVX2)) {
+		// 	k = gwf_extend1_avx2((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		// } else {
+		// 	k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		// }
 
 		xo_vec[index] += (k - k_vec[index]) << 2;
 		k_vec[index] = k;
