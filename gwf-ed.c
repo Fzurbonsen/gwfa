@@ -669,6 +669,8 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 	while (k < max_k_inc) {
 		uint64_t x = *(uint64_t*)(ts_ + k); // warning: unaligned memory access
 		uint64_t y = *(uint64_t*)(qs_ + k);
+		__builtin_prefetch(ts_ + k + 64);
+		__builtin_prefetch(qs_ + k + 64);
 		cmp = x ^ y;
 		if (cmp == 0) k += 8;
 		else break;
