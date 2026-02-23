@@ -1126,8 +1126,7 @@ static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, 
 		gwf_diag_t *p = &b[j];
 		int32_t d = (int32_t)p->vd - GWF_DIAG_SHIFT;
 		index = vd_to_aos_index(p->vd, g, diag_start_index);
-		int32_t k_limit = min(vl, ql - d);
-		if (p->k < k_limit) {
+		if (d + p->k < ql && p->k < vl) {
 			b[m++] = *p;
 		} else if (p->k == vl && index < max_index && index > base_index) {
 			// gwf_intv_t *q;
