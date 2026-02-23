@@ -1,9 +1,11 @@
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include "gwfa.h"
 #include "kalloc.h"
 #include "ksort.h"
+
 
 /*******************
  * Compiler Macros *
@@ -669,8 +671,6 @@ static inline int32_t gwf_extend1(int32_t d, int32_t k, int32_t vl, const char *
 	while (k < max_k_inc) {
 		uint64_t x = *(uint64_t*)(ts_ + k); // warning: unaligned memory access
 		uint64_t y = *(uint64_t*)(qs_ + k);
-		__builtin_prefetch(ts_ + k + 64);
-		__builtin_prefetch(qs_ + k + 64);
 		cmp = x ^ y;
 		if (cmp == 0) k += 8;
 		else break;
@@ -1280,7 +1280,12 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	// clean-up diag and sync with SOA
 	for (i = 0; i < n; ++i) {
 		index = vd_to_aos_index(b[i].vd, g, diag_start_index);
-		if ((b[i].k > k_vec[index] || diag_valid[index] == 0) && diag_valid[index] != 2) { // || b[i].k == -1
+		bool k_check = b[i].k > k_vec[index];
+		bool diag_zero_check = diag_valid[index] == 0;
+		bool diag_two_check = diag_valid[index] != 2;
+		bool total_check = (k_check || diag_zero_check) && diag_two_check;
+		// if ((b[i].k > k_vec[index] || diag_valid[index] == 0) && diag_valid[index] != 2) { // || b[i].k == -1
+		if (total_check) {
 			diag_valid[index] = 1; // indicate that the diagonal is in use
 			k_vec[index] = b[i].k;
 			t_vec[index] = b[i].t;
