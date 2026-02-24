@@ -1192,10 +1192,8 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		}
 
 		if ((valid_flag == 0 || valid_flag == 2) && dv == 1) {
-			if (diag_valid[i] == 1) {
-				x = i;
-				valid_flag = 1;
-			}
+			x = i;
+			valid_flag = 1;
 		}
 	}
 
