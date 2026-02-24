@@ -1182,14 +1182,16 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 
 	int8_t valid_flag = diag_valid[0]; // flag to keep track of whether we are in a valid region
 	for (x = 0, i = 1; i <= max_n_diag; ++i) {
+		int8_t dv = diag_valid[i];
 		if (valid_flag == 1) {
-			if (i == max_n_diag || vd_vec[i] != vd_vec[i-1] + 1 || diag_valid[i] != 1) {
+			if (vd_vec[i] != vd_vec[i-1] + 1 || dv != 1) {
 				gwf_ed_extend_batch_soa(buf->km, g, ql, q, i - x, x, &B, A, &buf->tmp, traceback, buf, 
 																max_n_diag, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, vd_vec);
 				valid_flag = 0;
 			}
 		}
-		if ((valid_flag == 0 || valid_flag == 2) && i < max_n_diag) {
+
+		if ((valid_flag == 0 || valid_flag == 2) && dv == 1) {
 			if (diag_valid[i] == 1) {
 				x = i;
 				valid_flag = 1;
@@ -1280,12 +1282,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 	// clean-up diag and sync with SOA
 	for (i = 0; i < n; ++i) {
 		index = vd_to_aos_index(b[i].vd, g, diag_start_index);
-		bool k_check = b[i].k > k_vec[index];
-		bool diag_zero_check = diag_valid[index] == 0;
-		bool diag_two_check = diag_valid[index] != 2;
-		bool total_check = (k_check || diag_zero_check) && diag_two_check;
-		// if ((b[i].k > k_vec[index] || diag_valid[index] == 0) && diag_valid[index] != 2) { // || b[i].k == -1
-		if (total_check) {
+		if ((b[i].k > k_vec[index] || diag_valid[index] == 0) && diag_valid[index] != 2) { // || b[i].k == -1
 			diag_valid[index] = 1; // indicate that the diagonal is in use
 			k_vec[index] = b[i].k;
 			t_vec[index] = b[i].t;
@@ -1510,7 +1507,7 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 	}
 
 	// structure of arrays approach
-	int8_t *diag_valid = malloc(max_n_diag * sizeof(int8_t));
+	int8_t *diag_valid = malloc((max_n_diag + 1) * sizeof(int8_t)); // + 1 to avoid sigsev
 	int16_t *k_vec = malloc(max_n_diag * sizeof(int16_t));
 	uint16_t *xo_vec = malloc(max_n_diag * sizeof(uint16_t)); // higher 31 bits: anti diagonal; lower 1 bit: out-of-order or not
 	int16_t *t_vec = malloc(max_n_diag * sizeof(int16_t));
@@ -1528,6 +1525,8 @@ int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char
 		diag_valid[i] = 0;
 		k_vec[i] = -1;
 	}
+
+	diag_valid[max_n_diag] = -1; // used to indicate that we reached the end of the diag_valid vector
 
 	memset(&buf, 0, sizeof(buf));
 	buf.km = km;
