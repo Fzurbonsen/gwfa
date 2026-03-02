@@ -1448,7 +1448,37 @@ int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, i
 	int32_t s = 0, n_a = 1, end_tb;
 	gwf_diag_t *a;
 	gwf_edbuf_t buf;
-	char* cigar;
+	int32_t index = 0;
+
+	// calculate maximum diagonal count
+	int32_t max_n_diag = 0;
+	int32_t diag_start_index[g->n_vtx];
+	for (int i = 0; i < g->n_vtx; ++i) {
+		diag_start_index[i] = max_n_diag;
+		max_n_diag += g->len[i] + ql + 1;
+	}
+
+	// structure of arrays approach
+	int8_t *diag_valid = malloc((max_n_diag + 1) * sizeof(int8_t)); // + 1 to avoid sigsev
+	int16_t *k_vec = malloc(max_n_diag * sizeof(int16_t));
+	uint16_t *xo_vec = malloc(max_n_diag * sizeof(uint16_t)); // higher 31 bits: anti diagonal; lower 1 bit: out-of-order or not
+	int16_t *t_vec = malloc(max_n_diag * sizeof(int16_t));
+	uint64_t *vd_vec = malloc(max_n_diag * sizeof(uint64_t));
+
+	// init vd_vec
+	for (int i = 0, idx = 0; i < g->n_vtx; ++i) {
+		for (int j = -g->len[i]; j <= ql; ++j) {
+			vd_vec[idx++] = gwf_gen_vd(i, j);
+		}
+	}
+
+
+	for (int i = 0 ; i < max_n_diag; ++i) {
+		diag_valid[i] = 0;
+		k_vec[i] = -1;
+	}
+
+	diag_valid[max_n_diag] = -1;
 
 	memset(&buf, 0, sizeof(buf));
 	buf.km = km;
@@ -1456,12 +1486,20 @@ int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, i
 	buf.ht = gwf_map64_init2(km);
 	kv_resize(gwf_trace_t, km, buf.t, g->n_vtx + 16);
 	KCALLOC(km, a, 1);
+
 	a[0].vd = gwf_gen_vd(v0, 0), a[0].k = -1, a[0].xo = 0; // the initial state
+
+	// add 0 diag to struct of arrays
+	index = v_d_to_aos_index(0, 0, g, diag_start_index);
+	diag_valid[index] = 1;
+	k_vec[index] = -1;
+	xo_vec[index] = -1 & ~1;
+	t_vec[index] = 0; // unsure
 
 	if (traceback) a[0].t = gwf_trace_push(km, &buf.t, -1, -1, buf.ht);
 	if (traceback == 2) gwf_init_trace_mat(&buf, g, ql);
 	while (n_a > 0) {
-		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, NULL, NULL, NULL, NULL, NULL, NULL, 0);
+		a = gwf_ed_extend(&buf, g, ql, q, v1, max_lag, traceback, &path->end_v, &path->end_off, &end_tb, &n_a, a, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, vd_vec, max_n_diag);
 		if (path->end_off >= 0 || n_a == 0) break;
 		++s;
 #ifdef GWF_DEBUG
@@ -1469,19 +1507,16 @@ int32_t gwf_ed_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, i
 #endif
 	}
 	if (traceback) gwf_traceback(&buf, path->end_v, end_tb, path);
-	// if (traceback == 2) {
-	// 	FILE* outputFile = fopen("./test_file.txt", "w");
-	// 	gwf_print_trace_mat(outputFile, &buf, g, ql, q);
-	// 	fclose(outputFile);
-	// }
 	if (traceback == 2) gwf_walk_trace_mat(&buf, path, g, ql);
 	if (traceback == 2) gwf_delete_trace_mat(&buf, g);
 	gwf_set64_destroy(buf.ha);
 	gwf_map64_destroy(buf.ht);
 	kfree(km, buf.intv.a); kfree(km, buf.tmp.a); kfree(km, buf.swap.a); kfree(km, buf.t.a);
+	free(diag_valid); free(k_vec); free(xo_vec); free(t_vec); free(vd_vec); // free SOA
 	path->s = path->end_v >= 0? s : -1;
 	return path->s; // end_v < 0 could happen if v0 can't reach v1
 }
+
 
 
 int32_t gwf_ed_infix_simd(void *km, const gwf_graph_t *g, int32_t ql, const char *q, int32_t v0, int32_t v1, uint32_t max_lag, int32_t traceback, gwf_path_t *path)
