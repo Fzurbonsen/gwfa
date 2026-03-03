@@ -896,9 +896,9 @@ static inline int32_t gwf_expand_avx2(int32_t index, int32_t vi, int32_t n, gwf_
 
 		// cast into scalar values
 		uint16_t k_out[16], xo_out[16], t_out[16];
-		_mm256_storeu_si256((__m128i*)k_out, k);
-		_mm256_storeu_si256((__m128i*)xo_out, xo);
-		_mm256_storeu_si256((__m128i*)t_out, t);
+		_mm256_storeu_si256((__m256i*)k_out, k);
+		_mm256_storeu_si256((__m256i*)xo_out, xo);
+		_mm256_storeu_si256((__m256i*)t_out, t);
 
 		for (int lane = 0; lane < 16; ++lane) {
 			b[vi].k = k_out[lane];
@@ -1034,14 +1034,14 @@ static void gwf_ed_extend_batch_soa(void *km, const gwf_graph_t *g, int32_t ql, 
 	// wfa_extend
 	for (j = 0; j < n; ++j, ++index) {
 		int32_t k;
-		k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
-		// if (UNLIKELY(simd_type == SSE2)) {
-		// 	k = gwf_extend1_sse2((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
-		// } else if (LIKELY(simd_type == AVX2)) {
-		// 	k = gwf_extend1_avx2((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
-		// } else {
-		// 	k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
-		// }
+		// k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		if (UNLIKELY(simd_type == SSE2)) {
+			k = gwf_extend1_sse2((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		} else if (LIKELY(simd_type == AVX2)) {
+			k = gwf_extend1_avx2((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		} else {
+			k = gwf_extend1((int32_t)vd_vec[index] - GWF_DIAG_SHIFT, k_vec[index], vl, ts, ql, q);
+		}
 
 		xo_vec[index] += (k - k_vec[index]) << 2;
 		k_vec[index] = k;
@@ -1269,7 +1269,7 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 			for (j = 0; j < nv; ++j) {
 				uint32_t w = (uint32_t)g->arc[ov + j].a;
 				int32_t ol = g->arc[ov + j].o;
-				gwf_diag_push(buf->km, &b, w, i-ol, ol, x0 + 1, 1, tw, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g); // deleting the first base on the next vertex
+				gwf_diag_push(buf->km, &B, w, i-ol, ol, x0 + 1, 1, tw, diag_start_index, diag_valid, k_vec, xo_vec, t_vec, g); // deleting the first base on the next vertex
 			}
 		} else assert(0); // should never come here
 	}
