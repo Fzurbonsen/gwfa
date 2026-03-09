@@ -926,14 +926,14 @@ static void gwf_ed_extend_batch(void *km, const gwf_graph_t *g, int32_t ql, cons
 	// wfa_extend
 	for (j = 0; j < n; ++j) {
 		int32_t k;
-		k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
-		// if (UNLIKELY(simd_type == SSE2)) {
-		// 	k = gwf_extend1_sse2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
-		// } else if (LIKELY(simd_type == AVX2)) {
-		// 	k = gwf_extend1_avx2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
-		// } else {
-		// 	k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
-		// }
+		// k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		if (UNLIKELY(simd_type == SSE2)) {
+			k = gwf_extend1_sse2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		} else if (LIKELY(simd_type == AVX2)) {
+			k = gwf_extend1_avx2((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		} else {
+			k = gwf_extend1((int32_t)a[j].vd - GWF_DIAG_SHIFT, a[j].k, vl, ts, ql, q);
+		}
 
 		a[j].xo += (k - a[j].k) << 2;
 		a[j].k = k;
@@ -1213,14 +1213,14 @@ static gwf_diag_t *gwf_ed_extend(gwf_edbuf_t *buf, const gwf_graph_t *g, int32_t
 		k = t.k; // wavefront position on the vertex
 		vl = g->len[v]; // $vl is the vertex length
 
-		k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
-		// if (UNLIKELY(simd_type == SSE2)) {
-		// 	k = gwf_extend1_sse2(d, k, vl, g->seq[v], ql, q);
-		// } else if (LIKELY(simd_type == AVX2)) {
-		// 	k = gwf_extend1_avx2(d, k, vl, g->seq[v], ql, q);
-		// } else {
-		// 	k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
-		// }
+		// k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
+		if (UNLIKELY(simd_type == SSE2)) {
+			k = gwf_extend1_sse2(d, k, vl, g->seq[v], ql, q);
+		} else if (LIKELY(simd_type == AVX2)) {
+			k = gwf_extend1_avx2(d, k, vl, g->seq[v], ql, q);
+		} else {
+			k = gwf_extend1(d, k, vl, g->seq[v], ql, q);
+		}
 
 		i = k + d; // query position
 		x0 = (t.xo >> 1) + ((k - t.k) << 1); // current anti diagonal
